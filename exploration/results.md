@@ -57,9 +57,9 @@ Tested on 5 samples from a 100-sample dataset. All circuits use 4 qubits (one pe
 ### IQP Encoding
 
 - **Output shape**: (5, 4) — single-qubit $\langle Z_i \rangle$ only
-- **Sample output**: **identical to ZZ feature map**
+- **Sample output**: **identical to ZZ feature map** (at `n_repeats=2`)
 
-**Bug: ZZ and IQP produce identical outputs.** Both circuits produce the same expectation values for every sample. This likely means the `IQPEmbedding` template with default parameters reduces to the same effective unitary as the hand-coded ZZ map at `reps=2`. The IQP circuit needs differentiated parameters (e.g., different `n_repeats`, edge patterns, or measurement observables) to produce distinct features.
+**Bug (fixed in `src/synthetic/`):** ZZ and IQP produced identical outputs because `IQPEmbedding` with `n_repeats=2` reduces to the same circuit as the hand-coded ZZ map. Fixed by using `n_repeats=3` for IQP and adding pairwise $\langle Z_i Z_j \rangle$ observables to both circuits. See `src/synthetic/augmenters/quantum_fixed.py`.
 
 ---
 
@@ -154,11 +154,13 @@ Downloads 3 tickers (AAPL, MSFT, NVDA) + S&P 500 index from 2020-01-01 to 2025-0
 
 ## Summary of Issues and Next Steps
 
-| Issue | Severity | Script |
+| Issue | Severity | Status |
 |-------|----------|--------|
-| ZZ and IQP circuits produce identical output | Bug | e03 |
-| VQC training underfits (20 samples, 30 epochs) | Config | e04 |
-| Quantum features use random/untrained weights in evaluation | Limitation | e05 |
-| ZZ/IQP only measure single-qubit $\langle Z_i \rangle$ (no pairwise) | Design gap | e03, e05 |
-| Walk-forward backtest not yet executed | Incomplete | e06 |
-| Quantum features not integrated into real data pipeline | Incomplete | e06 |
+| ZZ and IQP circuits produce identical output | Bug | **Fixed** in `src/synthetic/` (IQP uses `n_repeats=3`, both have pairwise obs) |
+| VQC training underfits (20 samples, 30 epochs) | Config | **Fixed** in `src/synthetic/` (500 subsample, 200 epochs, mini-batch, Adam) |
+| Quantum features use random/untrained weights in evaluation | Limitation | **Addressed** — `src/synthetic/` includes both fixed and trained augmenters |
+| ZZ/IQP only measure single-qubit $\langle Z_i \rangle$ (no pairwise) | Design gap | **Fixed** — all quantum augmenters now measure $\langle Z_i Z_j \rangle$ pairwise |
+| Walk-forward backtest not yet executed | Incomplete | Open (e06) |
+| Quantum features not integrated into real data pipeline | Incomplete | Open (e06) |
+
+**Note:** Issues marked "Fixed" are resolved in the `src/synthetic/` framework, not in these legacy exploration scripts.

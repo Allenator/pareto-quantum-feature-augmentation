@@ -21,24 +21,35 @@ uv sync
 ## Project Structure
 
 ```
-exploration/          # Runnable exploration scripts (partitioned from reference notebook)
-  e00_common.py       # Shared imports and utilities
-  e01_data_generation.py    # Synthetic regime-switching data
-  e02_classical_baseline.py # Polynomial features + linear regression
-  e03_quantum_feature_maps.py # Angle, ZZ, IQP encoding circuits
-  e04_hybrid_workflows.py   # VQC + quantum reservoir computing
-  e05_evaluation.py         # Side-by-side comparison
-  e06_real_stock_data.py    # S&P 500 feature construction + walk-forward
-docs/                 # Project documentation (see docs/INDEX.md)
+src/synthetic/             # Modular experiment framework
+  config.py                # Experiment configuration (dataclasses)
+  dgp.py                   # Data generation + parquet save/load
+  augmenters/              # Pluggable feature augmenters
+    classical.py           # Polynomial, log/abs, RFF, oracle
+    quantum_fixed.py       # Angle encoding, ZZ, IQP, reservoir, QAOA
+    quantum_learned.py     # VQC with trainable weights
+    neural.py              # MLP, autoencoder, learned RFF (torch MPS)
+  models/                  # Regression model wrappers
+    linear.py              # OLS, RidgeCV, LassoCV, ElasticNetCV
+  evaluation/              # Metrics, fairness checking, result aggregation
+  runner.py                # ExperimentRunner orchestrator
+scripts/
+  run_synthetic.py         # Entry point for synthetic experiments
+data/synthetic/            # Generated datasets (parquet, git LFS)
+results/synthetic/         # Experiment results (JSON + summary CSV)
+exploration/               # Legacy exploration scripts (from reference notebook)
+docs/                      # Documentation (see docs/INDEX.md)
 AWS-State-Street-Challenge/  # Challenge repo (git submodule)
 ```
 
-## Running exploration scripts
+## Running Experiments
 
 ```bash
-# From project root
-uv run python -m exploration.e01_data_generation
-uv run python -m exploration.e02_classical_baseline
+# Synthetic task — classical baselines only (fast)
+uv run python scripts/run_synthetic.py classical
+
+# Synthetic task — full experiment including quantum + neural (slow)
+uv run python scripts/run_synthetic.py full
 ```
 
 ## Challenge Reference

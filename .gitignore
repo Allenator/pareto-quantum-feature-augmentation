@@ -20,3 +20,6 @@ build/
 
 # Exploration outputs
 exploration/evaluation_comparison.png
+
+# Experiment results (regenerated on each run)
+results/

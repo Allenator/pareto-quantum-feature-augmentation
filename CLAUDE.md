@@ -8,19 +8,29 @@ Quantum Feature Augmentation for Financial Market Prediction — YQuantum 2026 A
 
 ## Build & Run
 
-```bash
-uv sync                                    # install dependencies
-uv run python -m exploration.e01_data_generation   # run any script as module
-uv run python -m exploration.e02_classical_baseline
-```
+Uses `uv` for package management with a local `.venv`.
 
-All exploration scripts live in `exploration/` and are runnable via `python -m exploration.<module_name>`. Cross-script imports go through explicit module paths (e.g., `from exploration.e01_data_generation import ...`).
+```bash
+uv sync                                              # install dependencies
+uv run python scripts/run_synthetic.py classical      # classical baselines only
+uv run python scripts/run_synthetic.py full           # full experiment (slow)
+uv run python -m exploration.e01_data_generation      # legacy exploration scripts
+```
 
 ## Architecture
 
-- **`exploration/`** — Runnable Python scripts partitioned from the reference notebook (`AWS-State-Street-Challenge/QFA_Overview.ipynb`). Numbered `e00`–`e06`, each covering one phase: data generation, classical baseline, quantum feature maps, hybrid workflows, evaluation, real stock data.
+- **`src/synthetic/`** — Modular experiment framework for the synthetic regime-switching task:
+  - `config.py` — frozen dataclasses for all configuration
+  - `dgp.py` — data generation + parquet save/load
+  - `augmenters/` — pluggable feature augmenters (classical, quantum fixed, quantum learned, neural)
+  - `models/` — regression model wrappers (OLS, RidgeCV, LassoCV, ElasticNetCV)
+  - `evaluation/` — metrics, fairness checking, result aggregation
+  - `runner.py` — `ExperimentRunner` orchestrator
+- **`scripts/`** — Entry points. `run_synthetic.py` configures and runs experiments.
+- **`data/synthetic/`** — Generated parquet datasets, tracked via **git LFS**. Do not regenerate unless the DGP changes.
+- **`results/synthetic/`** — Per-seed JSON results + `summary.csv`. Regenerated on each run.
+- **`exploration/`** — Legacy exploration scripts from the reference notebook. Numbered `e00`–`e06`.
 - **`docs/`** — Project documentation. **All docs must be indexed in `docs/INDEX.md`**. Update the index each time there is a meaningful change in documentation.
-- **`docs/specs/`** — Challenge specifications and requirements.
 - **`AWS-State-Street-Challenge/`** — Upstream challenge repo (git submodule). Read-only reference.
 
 ## Key Constraints (from challenge spec)
@@ -43,4 +53,4 @@ All exploration scripts live in `exploration/` and are runnable via `python -m e
 
 ## Dependencies
 
-Managed via `uv` and `pyproject.toml`. Key packages: `pennylane`, `amazon-braket-sdk`, `amazon-braket-pennylane-plugin`, `scikit-learn`, `yfinance`, `numpy`, `pandas`, `matplotlib`, `seaborn`, `scipy`.
+Managed via `uv` and `pyproject.toml` with a local `.venv`. Key packages: `pennylane`, `amazon-braket-sdk`, `amazon-braket-pennylane-plugin`, `scikit-learn`, `torch` (MPS backend for M4 Max), `yfinance`, `numpy`, `pandas`, `matplotlib`, `seaborn`, `scipy`, `pyarrow`.
