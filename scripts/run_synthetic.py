@@ -209,12 +209,12 @@ def run_static_sweep():
 
 
 def run_unified_factorial():
-    """Unified factorial: full product space, Ridge only, 1 seed, limited data."""
+    """Unified factorial: full product space, Ridge only, 5 seeds, limited data."""
     config = ExperimentConfig(
         dgp=DGPConfig(n_train=2000, n_test=2000),
         augmenters=UNIFIED_FACTORIAL,
         models=[ModelConfig("ridge")],
-        seeds=[42],
+        seeds=SEEDS,
         run_id="unified_factorial",
     )
     runner = ExperimentRunner(config)

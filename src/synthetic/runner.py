@@ -107,6 +107,22 @@ def _build_model(config: ModelConfig):
     return models[config.name]()
 
 
+def _eval_single(train_result, test_result, y_train, y_test,
+                  regime_train, regime_test, model_config, aug_name, seed):
+    """Fit model + compute metrics for one (augmenter, model) pair (for multiprocessing)."""
+    t0 = time.perf_counter()
+    model = _build_model(model_config)
+    pred = model.fit_predict(train_result.features, y_train, test_result.features)
+    total_elapsed = time.perf_counter() - t0
+    return compute_metrics(
+        y_test, pred, train_result, seed, total_elapsed,
+        augmenter_name_override=aug_name,
+        regime_test=regime_test,
+        y_train=y_train,
+        regime_train=regime_train,
+    )
+
+
 def _run_single_augmenter(aug_config, X_train, X_test, y_train, clip_range):
     """Run a single augmenter (for multiprocessing). Returns (name, train_result, test_result)."""
     augmenter = _build_augmenter(aug_config)
@@ -232,33 +248,35 @@ class ExperimentRunner:
                 dim_report = self.fairness.report_dimensionality(aug_results_train)
                 tqdm.write(f"\n  Seed {seed} — Dimensionality report:\n{dim_report.to_string(index=False)}")
 
-            # 5. Run all models on all augmented feature sets
+            # 5. Run all models on all augmented feature sets (parallel)
+            eval_tasks = []
             for aug_name in aug_results_train:
-                train_result = aug_results_train[aug_name]
-                test_result = aug_results_test[aug_name]
-
                 for model_config in self.config.models:
-                    # Skip if result exists and not force-rerunning
                     if (aug_name not in self.config.force_rerun
                             and self._result_exists(aug_name, model_config.name, seed)):
                         continue
+                    eval_tasks.append((aug_name, model_config))
 
-                    t0 = time.perf_counter()
-                    model = _build_model(model_config)
-                    pred = model.fit_predict(
-                        train_result.features, y_train, test_result.features,
+            if eval_tasks:
+                with ProcessPoolExecutor(max_workers=self._n_workers) as pool:
+                    futures = {
+                        pool.submit(
+                            _eval_single,
+                            aug_results_train[aug_name],
+                            aug_results_test[aug_name],
+                            y_train, y_test, regime_train, regime_test,
+                            model_config, aug_name, seed,
+                        ): (aug_name, model_config.name)
+                        for aug_name, model_config in eval_tasks
+                    }
+                    eval_pbar = tqdm(
+                        as_completed(futures), total=len(futures),
+                        desc=f"  Eval (seed={seed})", unit="run", leave=False,
                     )
-                    total_elapsed = time.perf_counter() - t0
-
-                    metrics = compute_metrics(
-                        y_test, pred, train_result, seed, total_elapsed,
-                        augmenter_name_override=aug_name,
-                        regime_test=regime_test,
-                        y_train=y_train,
-                        regime_train=regime_train,
-                    )
-                    self.result_table.save_single(metrics)
-                    all_metrics.append(metrics)
+                    for future in eval_pbar:
+                        metrics = future.result()
+                        self.result_table.save_single(metrics)
+                        all_metrics.append(metrics)
 
         # 6. Aggregate summary (loads ALL results in run dir, including cached)
         summary = self.result_table.summarize()
