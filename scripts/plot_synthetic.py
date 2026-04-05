@@ -28,12 +28,13 @@ FAMILY_RULES = [
     ("ZZ Map",             "ZZ/IQP/QAOA", ["zz_"], {}),
     ("IQP",                "ZZ/IQP/QAOA", ["iqp_"], {}),
     ("QAOA",               "ZZ/IQP/QAOA", ["qaoa_"], {}),
-    ("Reservoir (Z)",      "Reservoir",   ["reservoir_"], {"exclude": ["_zz", "_X", "_Y", "_full", "_circ", "_reup", "_all"]}),
-    ("Reservoir (Z+ZZ)",   "Reservoir",   ["reservoir_"], {"require": ["_zz"], "exclude": ["_XYZ", "_circ", "_reup", "_all"]}),
-    ("Reservoir (XYZ)",    "Reservoir",   ["reservoir_"], {"require": ["_XYZ"], "exclude": ["_ZZ"]}),
-    ("Reservoir (XYZ+ZZ)", "Reservoir",   ["reservoir_"], {"require": ["_XYZ_ZZ"]}),
+    ("Reservoir (Z)",      "Reservoir",   ["reservoir_"], {"exclude": ["_X", "_Y", "_Z+ZZ", "_XYZ", "_full"]}),
+    ("Reservoir (X)",      "Reservoir",   ["reservoir_"], {"require": ["_X"], "exclude": ["_XYZ"]}),
+    ("Reservoir (Y)",      "Reservoir",   ["reservoir_"], {"require": ["_Y"], "exclude": ["_XYZ"]}),
+    ("Reservoir (XYZ)",    "Reservoir",   ["reservoir_"], {"require": ["_XYZ"], "exclude": ["_ZZ", "_+ZZ"]}),
+    ("Reservoir (Z+ZZ)",   "Reservoir",   ["reservoir_"], {"require": ["_Z+ZZ"]}),
+    ("Reservoir (XYZ+ZZ)", "Reservoir",   ["reservoir_"], {"require": ["_XYZ+ZZ"]}),
     ("Reservoir (full)",   "Reservoir",   ["reservoir_"], {"require": ["_full"]}),
-    ("Reservoir (other)",  "Reservoir",   ["reservoir_"], {"require": ["_X", "_Y", "_circ", "_reup", "_all"]}),
     ("Oracle",             "Reference",   ["oracle"], {}),
     ("Identity",           "Reference",   ["identity"], {}),
 ]
@@ -130,10 +131,15 @@ def build_long_df(df: pd.DataFrame, metric="mse") -> pd.DataFrame:
     cols = col_map[metric]
     REGIMES = ["All Data", "Regime 1 (Linear)", "Regime 2 (Nonlinear)"]
 
+    complexity_cols = ["n_trainable_params", "n_random_params", "effective_rank",
+                       "nonlinearity_score", "feature_target_alignment"]
+
     rows = []
     for _, r in agg.iterrows():
         base = {"augmenter": r.augmenter_name, "family": r.family,
                 "group": r.group, "n_features": r.n_features}
+        for c in complexity_cols:
+            base[c] = r.get(c)
         for regime, (val_col, std_col) in zip(REGIMES, cols):
             if val_col is None:
                 continue
@@ -155,10 +161,15 @@ def build_train_test_long_df(df: pd.DataFrame) -> pd.DataFrame:
     train_cols = ["mse_train_all", "mse_train_r1", "mse_train_r2"]
     train_std_cols = ["mse_train_all_std", "mse_train_r1_std", "mse_train_r2_std"]
 
+    complexity_cols = ["n_trainable_params", "n_random_params", "effective_rank",
+                       "nonlinearity_score", "feature_target_alignment"]
+
     rows = []
     for _, r in agg.iterrows():
         base = {"augmenter": r.augmenter_name, "family": r.family,
                 "group": r.group, "n_features": r.n_features}
+        for c in complexity_cols:
+            base[c] = r.get(c)
         for regime, tc, tsc, trc, trsc in zip(REGIMES, test_cols, test_std_cols, train_cols, train_std_cols):
             test_val = r[tc]
             train_val = r[trc]
@@ -299,7 +310,12 @@ def make_test_fig(long, color_map, symbol_map, metric_name="MSE", log_y=False, b
         + "Family: " + long["family"] + "<br>"
         + "Features: " + long["n_features"].astype(str) + "<br>"
         + f"{metric_name}: " + long["value"].round(3).astype(str)
-        + " ± " + long["value_std"].round(3).astype(str)
+        + " ± " + long["value_std"].round(3).astype(str) + "<br>"
+        + "Trainable params: " + long["n_trainable_params"].fillna(0).astype(int).astype(str) + "<br>"
+        + "Random params: " + long["n_random_params"].fillna(0).astype(int).astype(str) + "<br>"
+        + "Eff. rank: " + long["effective_rank"].round(1).astype(str) + "<br>"
+        + "Nonlinearity: " + long["nonlinearity_score"].round(3).astype(str) + "<br>"
+        + "Target alignment: " + long["feature_target_alignment"].round(3).astype(str)
     )
 
     fig = px.line(
@@ -347,6 +363,11 @@ def make_train_test_fig(long_tt, color_map, symbol_map):
                     f"<b>{r.augmenter}</b><br>Family: {family}<br>"
                     f"Features: {int(r.n_features)}<br>MSE: {r.mse:.3f}"
                     + (f" ± {r.mse_std:.3f}" if pd.notna(r.mse_std) else "")
+                    + f"<br>Trainable: {int(r.n_trainable_params or 0)}"
+                    + f"<br>Random: {int(r.n_random_params or 0)}"
+                    + (f"<br>Eff. rank: {r.effective_rank:.1f}" if pd.notna(r.effective_rank) else "")
+                    + (f"<br>Nonlinearity: {r.nonlinearity_score:.3f}" if pd.notna(r.nonlinearity_score) else "")
+                    + (f"<br>Target align: {r.feature_target_alignment:.3f}" if pd.notna(r.feature_target_alignment) else "")
                     for _, r in fsub.iterrows()
                 ]
                 error_y = None

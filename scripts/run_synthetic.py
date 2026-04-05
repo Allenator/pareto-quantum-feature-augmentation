@@ -86,47 +86,53 @@ QAOA_SWEEP = [
     AugmenterConfig("qaoa_13q_p2", "quantum_fixed", {"n_qubits": 13, "p": 2}),
 ]
 
-# ── Reservoir sweep (Z-only, vary count) ──────────────────────────────────
-RESERVOIR_Z = [
-    AugmenterConfig("reservoir_1x3", "quantum_fixed", {"n_reservoirs": 1, "n_layers": 3}),
-    AugmenterConfig("reservoir_2x3", "quantum_fixed", {"n_reservoirs": 2, "n_layers": 3}),
-    AugmenterConfig("reservoir_3x3", "quantum_fixed", {"n_reservoirs": 3, "n_layers": 3}),
-    AugmenterConfig("reservoir_5x3", "quantum_fixed", {"n_reservoirs": 5, "n_layers": 3}),
-    AugmenterConfig("reservoir_7x3", "quantum_fixed", {"n_reservoirs": 7, "n_layers": 3}),
-    AugmenterConfig("reservoir_10x3", "quantum_fixed", {"n_reservoirs": 10, "n_layers": 3}),
-    AugmenterConfig("reservoir_13x3", "quantum_fixed", {"n_reservoirs": 13, "n_layers": 3}),
-    AugmenterConfig("reservoir_24x3", "quantum_fixed", {"n_reservoirs": 24, "n_layers": 3}),
+# ── Reservoir: systematic observable × n_reservoirs sweep ─────────────────
+def _reservoir_sweep(obs, counts):
+    suffix = f"_{obs}" if obs != "Z" else ""
+    return [
+        AugmenterConfig(
+            f"reservoir_{n}x3{suffix}", "quantum_fixed",
+            {"n_reservoirs": n, "n_layers": 3, "observables": obs},
+        )
+        for n in counts
+    ]
+
+RESERVOIR_SWEEP = (
+    _reservoir_sweep("Z",      [1, 3, 6, 12, 24])    # 4/res → 8–100
+    + _reservoir_sweep("X",    [1, 3, 6, 12, 24])    # 4/res → 8–100
+    + _reservoir_sweep("Y",    [1, 3, 6, 12, 24])    # 4/res → 8–100
+    + _reservoir_sweep("XYZ",  [1, 2, 3, 5, 8])      # 12/res → 16–100
+    + _reservoir_sweep("Z+ZZ", [1, 2, 3, 5, 9])      # 10/res → 14–94
+    + _reservoir_sweep("XYZ+ZZ", [1, 2, 3, 5])       # 18/res → 22–94
+    + _reservoir_sweep("full", [1, 2, 3])             # 30/res → 34–94
+)
+
+# ── Reservoir: ablation (entanglement + depth) at 3 reservoirs, full ──────
+RESERVOIR_ABLATION = [
+    # Entanglement topology (94 features each)
+    AugmenterConfig("reservoir_3x3_full_circ", "quantum_fixed",
+        {"n_reservoirs": 3, "n_layers": 3, "observables": "full", "entanglement": "circular"}),
+    AugmenterConfig("reservoir_3x3_full_all", "quantum_fixed",
+        {"n_reservoirs": 3, "n_layers": 3, "observables": "full", "entanglement": "all"}),
+    # Layer depth (94 features each)
+    AugmenterConfig("reservoir_3x1_full", "quantum_fixed",
+        {"n_reservoirs": 3, "n_layers": 1, "observables": "full"}),
+    AugmenterConfig("reservoir_3x2_full", "quantum_fixed",
+        {"n_reservoirs": 3, "n_layers": 2, "observables": "full"}),
+    AugmenterConfig("reservoir_3x5_full", "quantum_fixed",
+        {"n_reservoirs": 3, "n_layers": 5, "observables": "full"}),
 ]
 
-# ── Reservoir sweep (Z+ZZ, vary count) ────────────────────────────────────
-RESERVOIR_ZZ = [
-    AugmenterConfig("reservoir_1x3_zz", "quantum_fixed", {"n_reservoirs": 1, "n_layers": 3, "observables": "Z+ZZ"}),
-    AugmenterConfig("reservoir_2x3_zz", "quantum_fixed", {"n_reservoirs": 2, "n_layers": 3, "observables": "Z+ZZ"}),
-    AugmenterConfig("reservoir_3x3_zz", "quantum_fixed", {"n_reservoirs": 3, "n_layers": 3, "observables": "Z+ZZ"}),
-    AugmenterConfig("reservoir_5x3_zz", "quantum_fixed", {"n_reservoirs": 5, "n_layers": 3, "observables": "Z+ZZ"}),
-    AugmenterConfig("reservoir_9x3_zz", "quantum_fixed", {"n_reservoirs": 9, "n_layers": 3, "observables": "Z+ZZ"}),
-]
-
-# ── Reservoir basis variants (3 reservoirs) ───────────────────────────────
-RESERVOIR_BASIS = [
-    AugmenterConfig("reservoir_3x3_X", "quantum_fixed", {"n_reservoirs": 3, "n_layers": 3, "observables": "X"}),
-    AugmenterConfig("reservoir_3x3_Y", "quantum_fixed", {"n_reservoirs": 3, "n_layers": 3, "observables": "Y"}),
-    AugmenterConfig("reservoir_3x3_XYZ", "quantum_fixed", {"n_reservoirs": 3, "n_layers": 3, "observables": "XYZ"}),
-    AugmenterConfig("reservoir_3x3_XYZ_ZZ", "quantum_fixed", {"n_reservoirs": 3, "n_layers": 3, "observables": "XYZ+ZZ"}),
-    AugmenterConfig("reservoir_3x3_full", "quantum_fixed", {"n_reservoirs": 3, "n_layers": 3, "observables": "full"}),
-    # Scale up best basis variants
-    AugmenterConfig("reservoir_1x3_XYZ_ZZ", "quantum_fixed", {"n_reservoirs": 1, "n_layers": 3, "observables": "XYZ+ZZ"}),
-    AugmenterConfig("reservoir_2x3_XYZ_ZZ", "quantum_fixed", {"n_reservoirs": 2, "n_layers": 3, "observables": "XYZ+ZZ"}),
-    AugmenterConfig("reservoir_5x3_XYZ_ZZ", "quantum_fixed", {"n_reservoirs": 5, "n_layers": 3, "observables": "XYZ+ZZ"}),
-    # 5x3 XYZ+ZZ = 94 features (already at limit)
-]
-
-# ── Reservoir entanglement + data reuploading variants ────────────────────
-RESERVOIR_ADVANCED = [
-    AugmenterConfig("reservoir_3x3_circ_zz", "quantum_fixed", {"n_reservoirs": 3, "n_layers": 3, "observables": "Z+ZZ", "entanglement": "circular"}),
-    AugmenterConfig("reservoir_3x3_all_zz", "quantum_fixed", {"n_reservoirs": 3, "n_layers": 3, "observables": "Z+ZZ", "entanglement": "all"}),
-    AugmenterConfig("reservoir_3x3_reup_zz", "quantum_fixed", {"n_reservoirs": 3, "n_layers": 3, "observables": "Z+ZZ", "data_reuploading": True}),
-    AugmenterConfig("reservoir_3x3_circ_reup_zz", "quantum_fixed", {"n_reservoirs": 3, "n_layers": 3, "observables": "Z+ZZ", "entanglement": "circular", "data_reuploading": True}),
+# ── Reservoir: qubit count sweep (full observables) ──────────────────────
+RESERVOIR_QUBITS = [
+    # 5 qubits, full: 45 feat/res
+    AugmenterConfig("reservoir_1x3_full_5q", "quantum_fixed",
+        {"n_qubits": 5, "n_reservoirs": 1, "n_layers": 3, "observables": "full"}),
+    AugmenterConfig("reservoir_2x3_full_5q", "quantum_fixed",
+        {"n_qubits": 5, "n_reservoirs": 2, "n_layers": 3, "observables": "full"}),
+    # 6 qubits, full: 63 feat/res
+    AugmenterConfig("reservoir_1x3_full_6q", "quantum_fixed",
+        {"n_qubits": 6, "n_reservoirs": 1, "n_layers": 3, "observables": "full"}),
 ]
 
 # ── Probability sweep ────────────────────────────────────────────────────
@@ -144,10 +150,9 @@ ALL_STATIC = (
     + ZZ_SWEEP
     + IQP_SWEEP
     + QAOA_SWEEP
-    + RESERVOIR_Z
-    + RESERVOIR_ZZ
-    + RESERVOIR_BASIS
-    + RESERVOIR_ADVANCED
+    + RESERVOIR_SWEEP
+    + RESERVOIR_ABLATION
+    + RESERVOIR_QUBITS
     + PROB_SWEEP
 )
 
