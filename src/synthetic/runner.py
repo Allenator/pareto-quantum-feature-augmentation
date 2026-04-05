@@ -121,7 +121,7 @@ class ExperimentRunner:
         self.fairness = FairnessChecker()
         run_dir = str(Path(config.results_dir) / config.run_id)
         self.result_table = ResultTable(run_dir)
-        self._n_workers = max(1, os.cpu_count() - 2)
+        self._n_workers = os.cpu_count()
 
     def _result_exists(self, aug_name: str, model_name: str, seed: int) -> bool:
         """Check if a result JSON already exists for this (augmenter, model, seed)."""
