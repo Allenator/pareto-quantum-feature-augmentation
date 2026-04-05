@@ -1,0 +1,22 @@
+{
+  "mse": 2.389505,
+  "mae": 1.197344,
+  "pearson_r": 0.965928,
+  "mse_regime1": 2.171364,
+  "mae_regime1": 1.171867,
+  "pearson_r_regime1": 0.803057,
+  "mse_regime2": 3.035288,
+  "mae_regime2": 1.272768,
+  "pearson_r_regime2": 0.958399,
+  "augmenter_name": "angle_strong_5q_2L",
+  "n_features_total": 19,
+  "n_features_augmented": 15,
+  "augmenter_wall_clock": 10.0531,
+  "circuit_depth": 2,
+  "qubit_count": 5,
+  "gate_count": 2,
+  "model_name": "ridge",
+  "chosen_alpha": 1.0,
+  "seed": 42,
+  "total_wall_clock": 0.0168
+}

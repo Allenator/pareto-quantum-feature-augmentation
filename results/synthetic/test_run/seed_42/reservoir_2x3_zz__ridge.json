@@ -1,0 +1,22 @@
+{
+  "mse": 2.070198,
+  "mae": 1.07756,
+  "pearson_r": 0.970513,
+  "mse_regime1": 1.453581,
+  "mae_regime1": 0.94344,
+  "pearson_r_regime1": 0.87172,
+  "mse_regime2": 3.895628,
+  "mae_regime2": 1.47461,
+  "pearson_r_regime2": 0.946078,
+  "augmenter_name": "reservoir_2x3_zz",
+  "n_features_total": 24,
+  "n_features_augmented": 20,
+  "augmenter_wall_clock": 18.953,
+  "circuit_depth": 11,
+  "qubit_count": 4,
+  "gate_count": 22,
+  "model_name": "ridge",
+  "chosen_alpha": 0.1,
+  "seed": 42,
+  "total_wall_clock": 0.0176
+}

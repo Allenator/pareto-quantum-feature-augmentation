@@ -1,0 +1,6 @@
+augmenter_name,model_name,mse_mean,mse_std,mae_mean,mae_std,corr_mean,corr_std,mse_r1_mean,mse_r1_std,mse_r2_mean,mse_r2_std,corr_r1_mean,corr_r2_mean,n_features,n_augmented,circuit_depth,qubit_count,wall_clock_mean,n_seeds
+angle_strong_5q_2L,ridge,2.389505,,1.197344,,0.965928,,2.171364,,3.035288,,0.803057,0.958399,19,15,2.0,5.0,0.0168,1
+identity,ridge,4.769347,,1.655304,,0.930666,,3.262846,,9.229187,,0.77734,0.935849,4,0,,,0.0165,1
+oracle,ridge,2.414922,,1.218359,,0.965531,,2.312755,,2.717375,,0.784001,0.971009,6,2,,,0.0169,1
+reservoir_2x3_zz,ridge,2.070198,,1.07756,,0.970513,,1.453581,,3.895628,,0.87172,0.946078,24,20,11.0,4.0,0.0176,1
+zz_6q_r2,ridge,3.879301,,1.472812,,0.944004,,2.338865,,8.439598,,0.796538,0.926935,25,21,49.0,6.0,0.0183,1

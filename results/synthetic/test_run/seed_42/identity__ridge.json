@@ -1,0 +1,22 @@
+{
+  "mse": 4.769347,
+  "mae": 1.655304,
+  "pearson_r": 0.930666,
+  "mse_regime1": 3.262846,
+  "mae_regime1": 1.435609,
+  "pearson_r_regime1": 0.77734,
+  "mse_regime2": 9.229187,
+  "mae_regime2": 2.305688,
+  "pearson_r_regime2": 0.935849,
+  "augmenter_name": "identity",
+  "n_features_total": 4,
+  "n_features_augmented": 0,
+  "augmenter_wall_clock": 0.0,
+  "circuit_depth": null,
+  "qubit_count": null,
+  "gate_count": null,
+  "model_name": "ridge",
+  "chosen_alpha": 10.0,
+  "seed": 42,
+  "total_wall_clock": 0.0165
+}

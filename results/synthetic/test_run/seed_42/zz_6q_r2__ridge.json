@@ -1,0 +1,22 @@
+{
+  "mse": 3.879301,
+  "mae": 1.472812,
+  "pearson_r": 0.944004,
+  "mse_regime1": 2.338865,
+  "mae_regime1": 1.213154,
+  "pearson_r_regime1": 0.796538,
+  "mse_regime2": 8.439598,
+  "mae_regime2": 2.241501,
+  "pearson_r_regime2": 0.926935,
+  "augmenter_name": "zz_6q_r2",
+  "n_features_total": 25,
+  "n_features_augmented": 21,
+  "augmenter_wall_clock": 23.7838,
+  "circuit_depth": 49,
+  "qubit_count": 6,
+  "gate_count": 114,
+  "model_name": "ridge",
+  "chosen_alpha": 10.0,
+  "seed": 42,
+  "total_wall_clock": 0.0183
+}

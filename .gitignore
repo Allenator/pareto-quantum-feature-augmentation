@@ -22,9 +22,7 @@ build/
 exploration/evaluation_comparison.png
 
 # Experiment outputs (regenerated on each run)
-results/
 features/
-plots/
 
 # Examples
 AWS-Examples/
