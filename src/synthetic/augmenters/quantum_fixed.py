@@ -29,6 +29,15 @@ def _n_features_z_zz(n_qubits: int) -> int:
     return n_qubits + n_qubits * (n_qubits - 1) // 2
 
 
+def _pad_features(x, n_qubits: int):
+    """Cyclically repeat features to match n_qubits when n_qubits > len(x)."""
+    n = len(x)
+    if n >= n_qubits:
+        return x[:n_qubits]
+    reps = (n_qubits + n - 1) // n
+    return np.tile(x, reps)[:n_qubits]
+
+
 class AngleEncodingAugmenter:
     """Angle encoding + entangling layers with Z + ZZ observables."""
 
@@ -81,15 +90,18 @@ class AngleEncodingAugmenter:
 
     def transform(self, X: np.ndarray) -> AugmenterResult:
         t0 = time.perf_counter()
-        specs = self._get_specs(X[0])
+        x0 = _pad_features(X[0], self.n_qubits)
+        specs = self._get_specs(x0)
         features = []
         for x in X:
-            result = self._circuit(x, self._weights)
+            xp = _pad_features(x, self.n_qubits)
+            result = self._circuit(xp, self._weights)
             features.append(np.array(result))
         X_new = np.array(features)
         elapsed = time.perf_counter() - t0
         return _make_result(
             X, X_new, self.name, elapsed,
+            n_random_params=int(np.prod(self._weights.shape)),
             circuit_depth=specs["depth"],
             qubit_count=self.n_qubits,
             gate_count=specs["gate_count"],
@@ -139,10 +151,12 @@ class ZZMapAugmenter:
 
     def transform(self, X: np.ndarray) -> AugmenterResult:
         t0 = time.perf_counter()
-        specs = self._get_specs(X[0])
+        x0 = _pad_features(X[0], self.n_qubits)
+        specs = self._get_specs(x0)
         features = []
         for x in X:
-            result = self._circuit(x)
+            xp = _pad_features(x, self.n_qubits)
+            result = self._circuit(xp)
             features.append(np.array(result))
         X_new = np.array(features)
         elapsed = time.perf_counter() - t0
@@ -189,10 +203,12 @@ class IQPAugmenter:
 
     def transform(self, X: np.ndarray) -> AugmenterResult:
         t0 = time.perf_counter()
-        specs = self._get_specs(X[0])
+        x0 = _pad_features(X[0], self.n_qubits)
+        specs = self._get_specs(x0)
         features = []
         for x in X:
-            result = self._circuit(x)
+            xp = _pad_features(x, self.n_qubits)
+            result = self._circuit(xp)
             features.append(np.array(result))
         X_new = np.array(features)
         elapsed = time.perf_counter() - t0
@@ -204,17 +220,100 @@ class IQPAugmenter:
         )
 
 
+def _build_observables(n_qubits: int, observables: str):
+    """Build measurement list based on observable string.
+
+    Supported values:
+        "Z", "X", "Y" — single-Pauli on each qubit
+        "XYZ" — all three single-Pauli on each qubit
+        "Z+ZZ" — single Z + pairwise ZZ
+        "XYZ+ZZ" — all three single + pairwise ZZ
+        "full" — all single (X,Y,Z) + all pairwise (XX,YY,ZZ)
+    """
+    paulis = {"X": qml.PauliX, "Y": qml.PauliY, "Z": qml.PauliZ}
+    measurements = []
+
+    if observables in ("Z", "X", "Y"):
+        P = paulis[observables]
+        measurements = [qml.expval(P(i)) for i in range(n_qubits)]
+
+    elif observables == "XYZ":
+        for P in (qml.PauliX, qml.PauliY, qml.PauliZ):
+            measurements += [qml.expval(P(i)) for i in range(n_qubits)]
+
+    elif observables == "Z+ZZ":
+        measurements = list(_single_and_pairwise_z(n_qubits))
+
+    elif observables == "XYZ+ZZ":
+        for P in (qml.PauliX, qml.PauliY, qml.PauliZ):
+            measurements += [qml.expval(P(i)) for i in range(n_qubits)]
+        measurements += [
+            qml.expval(qml.PauliZ(i) @ qml.PauliZ(j))
+            for i in range(n_qubits) for j in range(i + 1, n_qubits)
+        ]
+
+    elif observables == "full":
+        for P in (qml.PauliX, qml.PauliY, qml.PauliZ):
+            measurements += [qml.expval(P(i)) for i in range(n_qubits)]
+        for P in (qml.PauliX, qml.PauliY, qml.PauliZ):
+            measurements += [
+                qml.expval(P(i) @ P(j))
+                for i in range(n_qubits) for j in range(i + 1, n_qubits)
+            ]
+
+    else:
+        raise ValueError(f"Unknown observables: {observables!r}")
+
+    return measurements
+
+
+def _build_entangling_layer(n_qubits: int, entanglement: str):
+    """Apply entangling gates based on topology string."""
+    if entanglement == "linear":
+        for i in range(n_qubits - 1):
+            qml.CNOT(wires=[i, i + 1])
+    elif entanglement == "circular":
+        for i in range(n_qubits - 1):
+            qml.CNOT(wires=[i, i + 1])
+        if n_qubits > 1:
+            qml.CNOT(wires=[n_qubits - 1, 0])
+    elif entanglement == "all":
+        for i in range(n_qubits):
+            for j in range(i + 1, n_qubits):
+                qml.CNOT(wires=[i, j])
+    else:
+        raise ValueError(f"Unknown entanglement: {entanglement!r}")
+
+
 class ReservoirAugmenter:
-    """Quantum reservoir computing: multiple fixed random circuits."""
+    """Quantum reservoir computing: multiple fixed random circuits.
+
+    Args:
+        observables: Measurement basis — "Z", "X", "Y", "XYZ", "Z+ZZ", "XYZ+ZZ", "full"
+        entanglement: CNOT topology — "linear", "circular", "all"
+        data_reuploading: Re-encode data at every layer (not just the first)
+        measure_pairwise: Deprecated, use observables="Z+ZZ" instead
+    """
 
     def __init__(self, n_qubits: int = N_QUBITS_DEFAULT, n_reservoirs: int = 3,
-                 n_layers: int = 3, measure_pairwise: bool = False, seed: int = 42):
-        pairwise_tag = "_zz" if measure_pairwise else ""
-        self.name = f"reservoir_{n_reservoirs}x{n_layers}{pairwise_tag}"
+                 n_layers: int = 3, observables: str = "Z",
+                 entanglement: str = "linear", data_reuploading: bool = False,
+                 measure_pairwise: bool = False, seed: int = 42):
+        # Backward compat: measure_pairwise maps to "Z+ZZ"
+        if measure_pairwise and observables == "Z":
+            observables = "Z+ZZ"
+        self.observables = observables
+        self.entanglement = entanglement
+        self.data_reuploading = data_reuploading
+
+        obs_tag = f"_{observables}" if observables != "Z" else ""
+        ent_tag = f"_{entanglement}" if entanglement != "linear" else ""
+        reup_tag = "_reup" if data_reuploading else ""
+        self.name = f"reservoir_{n_reservoirs}x{n_layers}{obs_tag}{ent_tag}{reup_tag}"
+
         self.n_qubits = n_qubits
         self.n_reservoirs = n_reservoirs
         self.n_layers = n_layers
-        self.measure_pairwise = measure_pairwise
         self._seed = seed
         self._circuits = []
         self._reservoir_weights = []
@@ -223,6 +322,10 @@ class ReservoirAugmenter:
 
     def _build_circuits(self):
         n_q = self.n_qubits
+        obs = self.observables
+        ent = self.entanglement
+        reup = self.data_reuploading
+
         for r in range(self.n_reservoirs):
             rng = np.random.default_rng(self._seed + r)
             weights = rng.uniform(0, 2 * np.pi, (self.n_layers, n_q, 3))
@@ -232,16 +335,15 @@ class ReservoirAugmenter:
 
             @qml.qnode(dev)
             def circuit(x, w):
-                qml.AngleEmbedding(x, wires=range(n_q), rotation="Y")
+                if not reup:
+                    qml.AngleEmbedding(x, wires=range(n_q), rotation="Y")
                 for layer in range(w.shape[0]):
+                    if reup:
+                        qml.AngleEmbedding(x, wires=range(n_q), rotation="Y")
                     for i in range(n_q):
                         qml.Rot(w[layer, i, 0], w[layer, i, 1], w[layer, i, 2], wires=i)
-                    for i in range(n_q - 1):
-                        qml.CNOT(wires=[i, i + 1])
-                if self.measure_pairwise:
-                    return _single_and_pairwise_z(n_q)
-                else:
-                    return [qml.expval(qml.PauliZ(i)) for i in range(n_q)]
+                    _build_entangling_layer(n_q, ent)
+                return _build_observables(n_q, obs)
 
             self._circuits.append(circuit)
 
@@ -259,18 +361,22 @@ class ReservoirAugmenter:
 
     def transform(self, X: np.ndarray) -> AugmenterResult:
         t0 = time.perf_counter()
-        specs = self._get_specs(X[0])
+        x0 = _pad_features(X[0], self.n_qubits)
+        specs = self._get_specs(x0)
         all_features = []
         for r, (circuit, weights) in enumerate(zip(self._circuits, self._reservoir_weights)):
             feats = []
             for x in X:
-                result = circuit(x, weights)
+                xp = _pad_features(x, self.n_qubits)
+                result = circuit(xp, weights)
                 feats.append(np.array(result))
             all_features.append(np.array(feats))
         X_new = np.hstack(all_features)
         elapsed = time.perf_counter() - t0
+        n_random = sum(int(np.prod(w.shape)) for w in self._reservoir_weights)
         return _make_result(
             X, X_new, self.name, elapsed,
+            n_random_params=n_random,
             circuit_depth=specs["depth"],
             qubit_count=self.n_qubits,
             gate_count=specs["gate_count"],
@@ -330,15 +436,19 @@ class QAOAAugmenter:
 
     def transform(self, X: np.ndarray) -> AugmenterResult:
         t0 = time.perf_counter()
-        specs = self._get_specs(X[0])
+        x0 = _pad_features(X[0], self.n_qubits)
+        specs = self._get_specs(x0)
         features = []
         for x in X:
-            result = self._circuit(x, self._gammas, self._betas)
+            xp = _pad_features(x, self.n_qubits)
+            result = self._circuit(xp, self._gammas, self._betas)
             features.append(np.array(result))
         X_new = np.array(features)
         elapsed = time.perf_counter() - t0
+        n_random = len(self._gammas) + len(self._betas)
         return _make_result(
             X, X_new, self.name, elapsed,
+            n_random_params=n_random,
             circuit_depth=specs["depth"],
             qubit_count=self.n_qubits,
             gate_count=specs["gate_count"],
@@ -384,15 +494,18 @@ class ProbabilityAugmenter:
 
     def transform(self, X: np.ndarray) -> AugmenterResult:
         t0 = time.perf_counter()
-        specs = self._get_specs(X[0])
+        x0 = _pad_features(X[0], self.n_qubits)
+        specs = self._get_specs(x0)
         features = []
         for x in X:
-            result = self._circuit(x, self._weights)
+            xp = _pad_features(x, self.n_qubits)
+            result = self._circuit(xp, self._weights)
             features.append(np.array(result))
         X_new = np.array(features)
         elapsed = time.perf_counter() - t0
         return _make_result(
             X, X_new, self.name, elapsed,
+            n_random_params=int(np.prod(self._weights.shape)),
             circuit_depth=specs["depth"],
             qubit_count=self.n_qubits,
             gate_count=specs["gate_count"],

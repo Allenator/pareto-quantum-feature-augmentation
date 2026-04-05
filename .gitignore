@@ -21,5 +21,7 @@ build/
 # Exploration outputs
 exploration/evaluation_comparison.png
 
-# Experiment results (regenerated on each run)
+# Experiment outputs (regenerated on each run)
 results/
+features/
+plots/

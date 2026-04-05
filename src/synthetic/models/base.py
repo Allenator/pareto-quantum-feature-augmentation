@@ -10,9 +10,12 @@ import numpy as np
 class PredictionResult:
     """Output of a regression model."""
     y_pred: np.ndarray
+    y_train_pred: np.ndarray | None
     model_name: str
     chosen_alpha: float | None  # None for OLS
     n_features: int
+    coef_l2_norm: float | None = None
+    lasso_active_fraction: float | None = None
 
 
 @runtime_checkable

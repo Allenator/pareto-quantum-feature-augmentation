@@ -83,7 +83,8 @@ class RFFAugmenter:
         t0 = time.perf_counter()
         X_new = self._rff.transform(X)
         elapsed = time.perf_counter() - t0
-        return _make_result(X, X_new, self.name, elapsed)
+        n_random = self.n_components * X.shape[1]  # random projection matrix W
+        return _make_result(X, X_new, self.name, elapsed, n_random_params=n_random)
 
 
 class OracleAugmenter:

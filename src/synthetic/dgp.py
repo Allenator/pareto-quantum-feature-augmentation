@@ -73,8 +73,11 @@ def load_data(data_dir: str, seed: int) -> pd.DataFrame | None:
     return None
 
 
-def get_or_generate(config: DGPConfig, data_dir: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Load cached data or generate and save. Returns (X_train, X_test, y_train, y_test)."""
+def get_or_generate(config: DGPConfig, data_dir: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Load cached data or generate and save.
+
+    Returns (X_train, X_test, y_train, y_test, regime_train, regime_test).
+    """
     df = load_data(data_dir, config.seed)
     if df is None:
         df = generate_regime_data(config)
@@ -89,4 +92,6 @@ def get_or_generate(config: DGPConfig, data_dir: str) -> tuple[np.ndarray, np.nd
         test[feature_cols].values,
         train["Y"].values,
         test["Y"].values,
+        train["regime"].values,
+        test["regime"].values,
     )

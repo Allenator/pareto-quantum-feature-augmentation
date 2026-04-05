@@ -1,3 +1,4 @@
 data/synthetic/*.parquet filter=lfs diff=lfs merge=lfs -text
+features/**/*.npz filter=lfs diff=lfs merge=lfs -text
 plots/**/*.html filter=lfs diff=lfs merge=lfs -text
 plots/**/*.png filter=lfs diff=lfs merge=lfs -text

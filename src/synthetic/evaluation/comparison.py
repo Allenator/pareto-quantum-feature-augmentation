@@ -87,20 +87,50 @@ class ResultTable:
 
         df = pd.DataFrame([r.to_dict() for r in results])
         group_cols = ["augmenter_name", "model_name"]
-        agg = df.groupby(group_cols).agg(
-            mse_mean=("mse", "mean"),
-            mse_std=("mse", "std"),
-            mae_mean=("mae", "mean"),
-            mae_std=("mae", "std"),
-            corr_mean=("pearson_r", "mean"),
-            corr_std=("pearson_r", "std"),
-            n_features=("n_features_total", "first"),
-            n_augmented=("n_features_augmented", "first"),
-            circuit_depth=("circuit_depth", "first"),
-            qubit_count=("qubit_count", "first"),
-            wall_clock_mean=("total_wall_clock", "mean"),
-            n_seeds=("seed", "count"),
-        ).reset_index()
+        agg_spec = {
+            "mse_mean": ("mse", "mean"),
+            "mse_std": ("mse", "std"),
+            "mae_mean": ("mae", "mean"),
+            "mae_std": ("mae", "std"),
+            "corr_mean": ("pearson_r", "mean"),
+            "corr_std": ("pearson_r", "std"),
+            "mse_r1_mean": ("mse_regime1", "mean"),
+            "mse_r1_std": ("mse_regime1", "std"),
+            "mse_r2_mean": ("mse_regime2", "mean"),
+            "mse_r2_std": ("mse_regime2", "std"),
+            "corr_r1_mean": ("pearson_r_regime1", "mean"),
+            "corr_r2_mean": ("pearson_r_regime2", "mean"),
+        }
+        # Training metrics (may be missing in old results)
+        if "mse_train" in df.columns and df["mse_train"].notna().any():
+            agg_spec.update({
+                "mse_train_mean": ("mse_train", "mean"),
+                "mse_train_std": ("mse_train", "std"),
+                "mse_train_r1_mean": ("mse_train_regime1", "mean"),
+                "mse_train_r2_mean": ("mse_train_regime2", "mean"),
+                "corr_train_mean": ("pearson_r_train", "mean"),
+            })
+        # Complexity metrics (may be missing in old results)
+        for col, agg_fn in [
+            ("n_trainable_params", "first"),
+            ("n_random_params", "first"),
+            ("effective_rank", "mean"),
+            ("nonlinearity_score", "mean"),
+            ("feature_target_alignment", "mean"),
+            ("coef_l2_norm", "mean"),
+            ("lasso_active_fraction", "mean"),
+        ]:
+            if col in df.columns and df[col].notna().any():
+                agg_spec[col] = (col, agg_fn)
+        agg_spec.update({
+            "n_features": ("n_features_total", "first"),
+            "n_augmented": ("n_features_augmented", "first"),
+            "circuit_depth": ("circuit_depth", "first"),
+            "qubit_count": ("qubit_count", "first"),
+            "wall_clock_mean": ("total_wall_clock", "mean"),
+            "n_seeds": ("seed", "count"),
+        })
+        agg = df.groupby(group_cols).agg(**agg_spec).reset_index()
 
         summary_path = self.results_dir / "summary.csv"
         agg.to_csv(summary_path, index=False)

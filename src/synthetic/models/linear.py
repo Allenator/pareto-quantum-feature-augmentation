@@ -11,6 +11,14 @@ from sklearn.linear_model import (
 from src.synthetic.models.base import PredictionResult
 
 
+def _coef_l2(model) -> float:
+    return round(float(np.linalg.norm(model.coef_)), 6)
+
+
+def _lasso_active(model) -> float:
+    return round(float(np.count_nonzero(model.coef_) / len(model.coef_)), 6)
+
+
 class OLSModel:
     """Ordinary least squares (no regularization)."""
     name = "ols"
@@ -21,9 +29,11 @@ class OLSModel:
         model = LinearRegression().fit(X_train, y_train)
         return PredictionResult(
             y_pred=model.predict(X_test),
+            y_train_pred=model.predict(X_train),
             model_name=self.name,
             chosen_alpha=None,
             n_features=X_train.shape[1],
+            coef_l2_norm=_coef_l2(model),
         )
 
 
@@ -42,9 +52,11 @@ class RidgeModel:
         model = RidgeCV(alphas=self.alpha_grid, cv=self.cv_folds).fit(X_train, y_train)
         return PredictionResult(
             y_pred=model.predict(X_test),
+            y_train_pred=model.predict(X_train),
             model_name=self.name,
             chosen_alpha=float(model.alpha_),
             n_features=X_train.shape[1],
+            coef_l2_norm=_coef_l2(model),
         )
 
 
@@ -65,9 +77,12 @@ class LassoModel:
         ).fit(X_train, y_train)
         return PredictionResult(
             y_pred=model.predict(X_test),
+            y_train_pred=model.predict(X_train),
             model_name=self.name,
             chosen_alpha=float(model.alpha_),
             n_features=X_train.shape[1],
+            coef_l2_norm=_coef_l2(model),
+            lasso_active_fraction=_lasso_active(model),
         )
 
 
@@ -91,7 +106,10 @@ class ElasticNetModel:
         ).fit(X_train, y_train)
         return PredictionResult(
             y_pred=model.predict(X_test),
+            y_train_pred=model.predict(X_train),
             model_name=self.name,
             chosen_alpha=float(model.alpha_),
             n_features=X_train.shape[1],
+            coef_l2_norm=_coef_l2(model),
+            lasso_active_fraction=_lasso_active(model),
         )

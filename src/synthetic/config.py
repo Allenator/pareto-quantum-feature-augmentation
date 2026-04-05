@@ -1,6 +1,7 @@
 """Frozen dataclasses for all experiment configuration."""
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
 
 @dataclass(frozen=True)
@@ -42,4 +43,7 @@ class ExperimentConfig:
     seeds: list[int] = field(default_factory=lambda: [42, 123, 456, 789, 1024])
     data_dir: str = "data/synthetic"
     results_dir: str = "results/synthetic"
+    features_dir: str = "features/synthetic"
+    run_id: str = field(default_factory=lambda: datetime.now().strftime("%Y%m%dT%H%M%S"))
     clip_range: float | None = 5.0  # Clip scaled features for quantum circuits (None = no clip)
+    force_rerun: set[str] = field(default_factory=set)  # Augmenter names to rerun even if results exist

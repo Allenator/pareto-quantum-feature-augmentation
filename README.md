@@ -28,15 +28,19 @@ src/synthetic/             # Modular experiment framework
     classical.py           # Polynomial, log/abs, RFF, oracle
     quantum_fixed.py       # Angle encoding, ZZ, IQP, reservoir, QAOA
     quantum_learned.py     # VQC with trainable weights
-    neural.py              # MLP, autoencoder, learned RFF (torch MPS)
+    neural.py              # MLP, autoencoder, learned RFF (torch)
   models/                  # Regression model wrappers
     linear.py              # OLS, RidgeCV, LassoCV, ElasticNetCV
-  evaluation/              # Metrics, fairness checking, result aggregation
+  evaluation/              # Metrics, complexity, fairness, result aggregation
+    complexity.py          # Effective rank, nonlinearity, feature-target alignment
   runner.py                # ExperimentRunner orchestrator
 scripts/
   run_synthetic.py         # Entry point for synthetic experiments
+  plot_synthetic.py        # Interactive Plotly visualizations
 data/synthetic/            # Generated datasets (parquet, git LFS)
+features/synthetic/        # Saved feature matrices (NPZ, git LFS)
 results/synthetic/         # Experiment results (JSON + summary CSV)
+plots/synthetic/           # Interactive HTML plots
 exploration/               # Legacy exploration scripts (from reference notebook)
 docs/                      # Documentation (see docs/INDEX.md)
 AWS-State-Street-Challenge/  # Challenge repo (git submodule)
@@ -45,11 +49,17 @@ AWS-State-Street-Challenge/  # Challenge repo (git submodule)
 ## Running Experiments
 
 ```bash
-# Synthetic task — classical baselines only (fast)
+# Static augmenter sweep — all fixed methods (main experiment)
+uv run python scripts/run_synthetic.py static
+
+# Trainable augmenter sweep — MLP, learned RFF, autoencoder
+uv run python scripts/run_synthetic.py trainable
+
+# Classical baselines only (fast)
 uv run python scripts/run_synthetic.py classical
 
-# Synthetic task — full experiment including quantum + neural (slow)
-uv run python scripts/run_synthetic.py full
+# Generate interactive plots
+uv run python scripts/plot_synthetic.py
 ```
 
 ## Challenge Reference

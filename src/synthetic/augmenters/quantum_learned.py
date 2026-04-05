@@ -7,7 +7,7 @@ import pennylane as qml
 from pennylane import numpy as pnp
 
 from src.synthetic.augmenters.base import AugmenterResult, _make_result
-from src.synthetic.augmenters.quantum_fixed import _single_and_pairwise_z
+from src.synthetic.augmenters.quantum_fixed import _single_and_pairwise_z, _pad_features
 
 N_QUBITS_DEFAULT = 4
 
@@ -22,7 +22,7 @@ class VQCAugmenter:
     def __init__(self, n_qubits: int = N_QUBITS_DEFAULT, n_layers: int = 2,
                  n_epochs: int = 200, lr: float = 0.01, batch_size: int = 64,
                  train_subsample: int | None = 500, seed: int = 42):
-        self.name = f"vqc_strong_{n_layers}L"
+        self.name = f"vqc_strong_{n_qubits}q_{n_layers}L"
         self.n_qubits = n_qubits
         self.n_layers = n_layers
         self.n_epochs = n_epochs
@@ -53,7 +53,8 @@ class VQCAugmenter:
     def _extract_features(self, X: np.ndarray, weights) -> np.ndarray:
         features = []
         for x in X:
-            result = self._circuit(x, weights)
+            xp = _pad_features(x, self.n_qubits)
+            result = self._circuit(xp, weights)
             features.append(np.array(result))
         return np.array(features)
 
@@ -75,6 +76,7 @@ class VQCAugmenter:
             requires_grad=True,
         )
         opt = qml.AdamOptimizer(stepsize=self.lr)
+        n_q = self.n_qubits
 
         n_samples = len(X_sub)
         for epoch in range(self.n_epochs):
@@ -88,11 +90,10 @@ class VQCAugmenter:
                 def cost(w):
                     feats = []
                     for x in X_batch:
-                        result = self._circuit(x, w)
+                        xp = _pad_features(x, n_q)
+                        result = self._circuit(xp, w)
                         feats.append(result)
                     feats = pnp.stack(feats)
-                    # Least-squares proxy: mean squared feature-target correlation
-                    # Use sum of squared correlations as proxy
                     predictions = pnp.mean(feats, axis=1)
                     return pnp.mean((predictions - y_batch) ** 2)
 
@@ -107,7 +108,8 @@ class VQCAugmenter:
 
     def _get_specs(self, x_sample):
         if self._specs_cache is None:
-            specs = qml.specs(self._circuit)(x_sample, self._weights)
+            xp = _pad_features(x_sample, self.n_qubits)
+            specs = qml.specs(self._circuit)(xp, self._weights)
             self._specs_cache = {
                 "depth": specs.resources.depth,
                 "gate_count": specs.resources.num_gates,
@@ -123,6 +125,7 @@ class VQCAugmenter:
         elapsed = time.perf_counter() - t0
         return _make_result(
             X, X_new, self.name, elapsed,
+            n_trainable_params=int(np.prod(self._weights.shape)),
             circuit_depth=specs["depth"],
             qubit_count=self.n_qubits,
             gate_count=specs["gate_count"],

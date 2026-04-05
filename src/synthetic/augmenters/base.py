@@ -14,6 +14,9 @@ class AugmenterResult:
     n_augmented: int
     augmenter_name: str
     wall_clock_seconds: float
+    # Parameter counts
+    n_trainable_params: int = 0
+    n_random_params: int = 0
     # Quantum-specific (None for classical)
     circuit_depth: int | None = None
     qubit_count: int | None = None
@@ -39,6 +42,8 @@ def _make_result(
     X_new: np.ndarray | None,
     name: str,
     elapsed: float,
+    n_trainable_params: int = 0,
+    n_random_params: int = 0,
     circuit_depth: int | None = None,
     qubit_count: int | None = None,
     gate_count: int | None = None,
@@ -56,6 +61,8 @@ def _make_result(
         n_augmented=n_augmented,
         augmenter_name=name,
         wall_clock_seconds=elapsed,
+        n_trainable_params=n_trainable_params,
+        n_random_params=n_random_params,
         circuit_depth=circuit_depth,
         qubit_count=qubit_count,
         gate_count=gate_count,
