@@ -10,6 +10,7 @@ All documentation in `docs/` is listed here. Update this index whenever document
 
 - [Synthetic Experiment Design](designs/synthetic.md) — Architecture, augmenter inventory, fairness controls, and initial results for the synthetic regime-switching experiment
 - [Unified Quantum Design](designs/unified_quantum_design.md) — Factorial design strategy for systematically comparing quantum feature maps across 7 independent dimensions
+- [Classical Baselines](designs/classical_baselines.md) — Classical feature augmentation methods: polynomial, log/abs, RFF, oracle, and comparison table
 - [Quantum Reservoir](designs/quantum_reservoir.md) — Optimal quantum feature augmentation strategy: circuit structure, design justification, usage, and integration
 
 ## Results

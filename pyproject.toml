@@ -8,6 +8,7 @@ dependencies = [
     "amazon-braket-pennylane-plugin",
     "amazon-braket-sdk",
     "jupyter>=1.1.1",
+    "kaleido>=1.2.0",
     "matplotlib",
     "nbconvert>=7.17.0",
     "numpy",

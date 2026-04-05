@@ -156,6 +156,13 @@ def _add_reference_lines(fig, row=None, col=None):
             )
 
 
+def _hex_to_rgba(hex_color, alpha):
+    """Convert #RRGGBB to rgba(r,g,b,a)."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"rgba({r},{g},{b},{alpha})"
+
+
 def make_scatter(df, color_col, title, filename):
     """MSE vs features scatter (mean across seeds) with Pareto frontier + error bars."""
     categories = df[color_col].unique()
@@ -164,13 +171,19 @@ def make_scatter(df, color_col, title, filename):
     for i, cat in enumerate(sorted(categories, key=str)):
         sub = df[df[color_col] == cat]
         color = _COLORS[i % len(_COLORS)]
-
-        # Scatter points (mean across seeds)
+        # Legend entry — opaque, single invisible point
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode="markers", name=str(cat),
+            legendgroup=str(cat),
+            marker=dict(size=8, color=color),
+        ))
+        # Scatter points (mean across seeds) — faded on plot, hidden from legend
         fig.add_trace(go.Scatter(
             x=sub["n_features"], y=sub["mse_mean"],
             mode="markers", name=str(cat),
-            legendgroup=str(cat),
-            marker=dict(size=5, color=color, opacity=0.3),
+            legendgroup=str(cat), showlegend=False,
+            marker=dict(size=4, color=color, opacity=0.35),
             hovertext=sub["hover"], hoverinfo="text",
         ))
 
@@ -202,7 +215,8 @@ def make_scatter(df, color_col, title, filename):
     )
     path = FIGURES_DIR / filename
     fig.write_html(str(path), include_plotlyjs=True)
-    print(f"Saved: {path}")
+    fig.write_image(str(path.with_suffix(".png")), scale=3)
+    print(f"Saved: {path} + .png")
 
 
 def make_2x2_structure(df):
@@ -235,10 +249,17 @@ def make_2x2_structure(df):
             show_legend = cat not in legend_added
             legend_added.add(cat)
 
+            if show_legend:
+                fig.add_trace(go.Scatter(
+                    x=[None], y=[None],
+                    mode="markers", name=str(cat),
+                    legendgroup=str(cat),
+                    marker=dict(size=8, color=color),
+                ), row=row, col=col)
             fig.add_trace(go.Scatter(
                 x=sub["n_features"], y=sub["mse_mean"],
                 mode="markers", name=str(cat),
-                legendgroup=str(cat), showlegend=show_legend,
+                legendgroup=str(cat), showlegend=False,
                 marker=dict(size=4, color=color, opacity=0.3),
                 hovertext=sub["hover"], hoverinfo="text",
             ), row=row, col=col)
@@ -276,7 +297,8 @@ def make_2x2_structure(df):
 
     path = FIGURES_DIR / "encoding_x_structure.html"
     fig.write_html(str(path), include_plotlyjs=True)
-    print(f"Saved: {path}")
+    fig.write_image(str(path.with_suffix(".png")), scale=3)
+    print(f"Saved: {path} + .png")
 
 
 def main():

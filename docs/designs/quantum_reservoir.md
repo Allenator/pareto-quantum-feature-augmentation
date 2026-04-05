@@ -9,7 +9,7 @@ The quantum reservoir is the optimal quantum feature augmentation strategy ident
 Each ensemble member follows the template:
 
 $$
-|0\rangle^{\otimes n} \xrightarrow{R_Y(x_i)} \xrightarrow{[\text{Rot}(\theta,\phi,\lambda) + \text{CNOT}] \times L} \xrightarrow{\text{Rot}(\theta,\phi,\lambda)} \xrightarrow{\langle Z_i \rangle}
+|0\rangle^{\otimes n} \rightarrow{R_Y(x_i)} \rightarrow{[\text{Rot}(\theta,\phi,\lambda) + \text{CNOT}] \times L} \rightarrow{\text{Rot}(\theta,\phi,\lambda)} \rightarrow{\langle Z_i \rangle}
 $$
 
 Concretely for 4 qubits, 2 layers:
