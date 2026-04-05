@@ -1,6 +1,14 @@
 """ExperimentRunner: orchestrates the full synthetic experiment."""
 
 import os
+
+# Prevent BLAS/OpenMP oversubscription when using multiprocessing
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -31,6 +39,7 @@ from src.synthetic.augmenters.quantum_fixed import (
     ZZMapAugmenter,
 )
 from src.synthetic.augmenters.quantum_learned import VQCAugmenter
+from src.synthetic.augmenters.quantum_unified import UnifiedQuantumAugmenter
 
 # Model registry
 from src.synthetic.models.linear import (
@@ -59,6 +68,7 @@ def _build_augmenter(config: AugmenterConfig):
         "qaoa": lambda p: QAOAAugmenter(**p),
         "prob": lambda p: ProbabilityAugmenter(**p),
         "vqc": lambda p: VQCAugmenter(**p),
+        "unified": lambda p: UnifiedQuantumAugmenter(**p),
     }
 
     # Try neural augmenters (optional torch dependency)

@@ -143,6 +143,41 @@ PROB_SWEEP = [
     AugmenterConfig("prob_6q_2L", "quantum_fixed", {"n_qubits": 6, "n_layers": 2}),
 ]
 
+# ── Unified quantum factorial (1-layer, single-Z, 4 features each) ────────
+def _unified_configs():
+    """Generate full product space of unified quantum augmenter configs."""
+    configs = []
+    encodings = ["RZ", "IQP", "angle"]
+    connectivities = ["linear", "circular", "all"]
+    obs_list = ["Z", "Z+ZZ", "XYZ", "full", "prob"]
+    cnot_vals = [False, True]
+    rot_vals = [False, True]
+    layer_vals = [1, 2, 3]
+    ensemble_vals = [1, 2, 3]
+
+    for enc in encodings:
+        for conn in connectivities:
+            for cnot in cnot_vals:
+                for obs in obs_list:
+                    for rot in rot_vals:
+                        for nl in layer_vals:
+                            for ne in ensemble_vals:
+                                cnot_tag = "cnot" if cnot else "noc"
+                                obs_tag = f"_{obs}" if obs != "Z" else ""
+                                rot_tag = "_rot" if rot else ""
+                                lay_tag = f"_{nl}L" if nl != 1 else ""
+                                ens_tag = f"_{ne}ens" if ne != 1 else ""
+                                name = f"unified_{enc}_{conn}_{cnot_tag}{obs_tag}{rot_tag}{lay_tag}{ens_tag}"
+                                configs.append(AugmenterConfig(name, "quantum_fixed", {
+                                    "encoding": enc, "connectivity": conn,
+                                    "cnot_mixing": cnot, "observables": obs,
+                                    "random_rot": rot, "n_layers": nl, "n_ensemble": ne,
+                                }))
+
+    return configs
+
+UNIFIED_FACTORIAL = _unified_configs()
+
 # ── All static augmenters ────────────────────────────────────────────────
 ALL_STATIC = (
     CLASSICAL
@@ -154,6 +189,7 @@ ALL_STATIC = (
     + RESERVOIR_ABLATION
     + RESERVOIR_QUBITS
     + PROB_SWEEP
+    + UNIFIED_FACTORIAL
 )
 
 SEEDS = [42, 123, 456, 789, 1024]
@@ -167,6 +203,19 @@ def run_static_sweep():
         models=[ModelConfig("ridge"), ModelConfig("lasso")],
         seeds=SEEDS,
         run_id="static_sweep",
+    )
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_unified_factorial():
+    """Unified factorial: full product space, Ridge only, 1 seed, limited data."""
+    config = ExperimentConfig(
+        dgp=DGPConfig(n_train=2000, n_test=2000),
+        augmenters=UNIFIED_FACTORIAL,
+        models=[ModelConfig("ridge")],
+        seeds=[42],
+        run_id="unified_factorial",
     )
     runner = ExperimentRunner(config)
     return runner.run()
@@ -263,6 +312,8 @@ if __name__ == "__main__":
         run_static_sweep()
     elif mode == "trainable":
         run_trainable_sweep()
+    elif mode == "unified":
+        run_unified_factorial()
     else:
-        print(f"Usage: python scripts/run_synthetic.py [classical|static|trainable]")
+        print(f"Usage: python scripts/run_synthetic.py [classical|static|trainable|unified]")
         sys.exit(1)
