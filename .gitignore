@@ -24,5 +24,8 @@ exploration/evaluation_comparison.png
 # Experiment outputs (regenerated on each run)
 features/
 
+# AWS credentials
+.env.aws
+
 # Examples
 AWS-Examples/

@@ -1,6 +1,9 @@
 """Fixed-parameter quantum feature augmenters.
 
-All circuits use lightning.qubit for performance.
+By default circuits use lightning.qubit for performance, but accept an
+optional ``device`` argument so callers can supply an AWS Braket device
+(or any other PennyLane-compatible backend).
+
 All produce [X_original | X_quantum] with quantum resource metadata.
 """
 
@@ -42,7 +45,8 @@ class AngleEncodingAugmenter:
     """Angle encoding + entangling layers with Z + ZZ observables."""
 
     def __init__(self, n_qubits: int = N_QUBITS_DEFAULT, n_layers: int = 2,
-                 use_strongly_entangling: bool = False, seed: int = 42):
+                 use_strongly_entangling: bool = False, seed: int = 42,
+                 device=None):
         suffix = "strong" if use_strongly_entangling else "basic"
         self.name = f"angle_{suffix}_{n_layers}L"
         self.n_qubits = n_qubits
@@ -52,7 +56,7 @@ class AngleEncodingAugmenter:
         self._weights = None
         self._circuit = None
         self._specs_cache = None
-        self._dev = qml.device("lightning.qubit", wires=n_qubits)
+        self._dev = device if device is not None else qml.device("lightning.qubit", wires=n_qubits)
         self._build_circuit()
 
     def _build_circuit(self):
@@ -78,11 +82,14 @@ class AngleEncodingAugmenter:
 
     def _get_specs(self, x_sample):
         if self._specs_cache is None:
-            specs = qml.specs(self._circuit)(x_sample, self._weights)
-            self._specs_cache = {
-                "depth": specs.resources.depth,
-                "gate_count": specs.resources.num_gates,
-            }
+            try:
+                specs = qml.specs(self._circuit)(x_sample, self._weights)
+                self._specs_cache = {
+                    "depth": specs.resources.depth,
+                    "gate_count": specs.resources.num_gates,
+                }
+            except Exception:
+                self._specs_cache = {"depth": None, "gate_count": None}
         return self._specs_cache
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
@@ -111,11 +118,12 @@ class AngleEncodingAugmenter:
 class ZZMapAugmenter:
     """ZZ feature map with Z + ZZ pairwise observables (bug-fixed)."""
 
-    def __init__(self, n_qubits: int = N_QUBITS_DEFAULT, reps: int = 2):
+    def __init__(self, n_qubits: int = N_QUBITS_DEFAULT, reps: int = 2,
+                 device=None):
         self.name = f"zz_reps{reps}"
         self.n_qubits = n_qubits
         self.reps = reps
-        self._dev = qml.device("lightning.qubit", wires=n_qubits)
+        self._dev = device if device is not None else qml.device("lightning.qubit", wires=n_qubits)
         self._specs_cache = None
         self._build_circuit()
 
@@ -139,11 +147,14 @@ class ZZMapAugmenter:
 
     def _get_specs(self, x_sample):
         if self._specs_cache is None:
-            specs = qml.specs(self._circuit)(x_sample)
-            self._specs_cache = {
-                "depth": specs.resources.depth,
-                "gate_count": specs.resources.num_gates,
-            }
+            try:
+                specs = qml.specs(self._circuit)(x_sample)
+                self._specs_cache = {
+                    "depth": specs.resources.depth,
+                    "gate_count": specs.resources.num_gates,
+                }
+            except Exception:
+                self._specs_cache = {"depth": None, "gate_count": None}
         return self._specs_cache
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
@@ -171,11 +182,12 @@ class ZZMapAugmenter:
 class IQPAugmenter:
     """IQP encoding, differentiated from ZZ by using n_repeats=3 and Z+ZZ obs."""
 
-    def __init__(self, n_qubits: int = N_QUBITS_DEFAULT, n_repeats: int = 3):
+    def __init__(self, n_qubits: int = N_QUBITS_DEFAULT, n_repeats: int = 3,
+                 device=None):
         self.name = f"iqp_reps{n_repeats}"
         self.n_qubits = n_qubits
         self.n_repeats = n_repeats
-        self._dev = qml.device("lightning.qubit", wires=n_qubits)
+        self._dev = device if device is not None else qml.device("lightning.qubit", wires=n_qubits)
         self._specs_cache = None
         self._build_circuit()
 
@@ -191,11 +203,14 @@ class IQPAugmenter:
 
     def _get_specs(self, x_sample):
         if self._specs_cache is None:
-            specs = qml.specs(self._circuit)(x_sample)
-            self._specs_cache = {
-                "depth": specs.resources.depth,
-                "gate_count": specs.resources.num_gates,
-            }
+            try:
+                specs = qml.specs(self._circuit)(x_sample)
+                self._specs_cache = {
+                    "depth": specs.resources.depth,
+                    "gate_count": specs.resources.num_gates,
+                }
+            except Exception:
+                self._specs_cache = {"depth": None, "gate_count": None}
         return self._specs_cache
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
@@ -298,7 +313,8 @@ class ReservoirAugmenter:
     def __init__(self, n_qubits: int = N_QUBITS_DEFAULT, n_reservoirs: int = 3,
                  n_layers: int = 3, observables: str = "Z",
                  entanglement: str = "linear", data_reuploading: bool = False,
-                 measure_pairwise: bool = False, seed: int = 42):
+                 measure_pairwise: bool = False, seed: int = 42,
+                 device=None):
         # Backward compat: measure_pairwise maps to "Z+ZZ"
         if measure_pairwise and observables == "Z":
             observables = "Z+ZZ"
@@ -315,6 +331,7 @@ class ReservoirAugmenter:
         self.n_reservoirs = n_reservoirs
         self.n_layers = n_layers
         self._seed = seed
+        self._device = device
         self._circuits = []
         self._reservoir_weights = []
         self._specs_cache = None
@@ -331,7 +348,7 @@ class ReservoirAugmenter:
             weights = rng.uniform(0, 2 * np.pi, (self.n_layers, n_q, 3))
             self._reservoir_weights.append(weights)
 
-            dev = qml.device("lightning.qubit", wires=n_q)
+            dev = self._device if self._device is not None else qml.device("lightning.qubit", wires=n_q)
 
             @qml.qnode(dev)
             def circuit(x, w):
@@ -349,11 +366,14 @@ class ReservoirAugmenter:
 
     def _get_specs(self, x_sample):
         if self._specs_cache is None:
-            specs = qml.specs(self._circuits[0])(x_sample, self._reservoir_weights[0])
-            self._specs_cache = {
-                "depth": specs.resources.depth,
-                "gate_count": specs.resources.num_gates,
-            }
+            try:
+                specs = qml.specs(self._circuits[0])(x_sample, self._reservoir_weights[0])
+                self._specs_cache = {
+                    "depth": specs.resources.depth,
+                    "gate_count": specs.resources.num_gates,
+                }
+            except Exception:
+                self._specs_cache = {"depth": None, "gate_count": None}
         return self._specs_cache
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
@@ -363,14 +383,18 @@ class ReservoirAugmenter:
         t0 = time.perf_counter()
         x0 = _pad_features(X[0], self.n_qubits)
         specs = self._get_specs(x0)
+
+        # Pre-pad all samples once: shape (n_samples, n_qubits)
+        X_padded = np.array([_pad_features(x, self.n_qubits) for x in X])
+
         all_features = []
         for r, (circuit, weights) in enumerate(zip(self._circuits, self._reservoir_weights)):
-            feats = []
-            for x in X:
-                xp = _pad_features(x, self.n_qubits)
-                result = circuit(xp, weights)
-                feats.append(np.array(result))
-            all_features.append(np.array(feats))
+            # Parameter broadcasting: pass the full batch at once.
+            # The QNode receives (n_samples, n_qubits) and returns a tuple
+            # of n_obs arrays each of shape (n_samples,).
+            result = circuit(X_padded, weights)
+            # Stack observables → (n_obs, n_samples), transpose → (n_samples, n_obs)
+            all_features.append(np.stack(result, axis=-1))
         X_new = np.hstack(all_features)
         elapsed = time.perf_counter() - t0
         n_random = sum(int(np.prod(w.shape)) for w in self._reservoir_weights)
@@ -386,12 +410,13 @@ class ReservoirAugmenter:
 class QAOAAugmenter:
     """QAOA-inspired feature map: alternating cost(x)/mixer Hamiltonians."""
 
-    def __init__(self, n_qubits: int = N_QUBITS_DEFAULT, p: int = 2, seed: int = 42):
+    def __init__(self, n_qubits: int = N_QUBITS_DEFAULT, p: int = 2, seed: int = 42,
+                 device=None):
         self.name = f"qaoa_p{p}"
         self.n_qubits = n_qubits
         self.p = p
         self._seed = seed
-        self._dev = qml.device("lightning.qubit", wires=n_qubits)
+        self._dev = device if device is not None else qml.device("lightning.qubit", wires=n_qubits)
         self._specs_cache = None
         rng = np.random.default_rng(seed)
         self._gammas = rng.uniform(0.1, 1.0, p)
@@ -424,11 +449,14 @@ class QAOAAugmenter:
 
     def _get_specs(self, x_sample):
         if self._specs_cache is None:
-            specs = qml.specs(self._circuit)(x_sample, self._gammas, self._betas)
-            self._specs_cache = {
-                "depth": specs.resources.depth,
-                "gate_count": specs.resources.num_gates,
-            }
+            try:
+                specs = qml.specs(self._circuit)(x_sample, self._gammas, self._betas)
+                self._specs_cache = {
+                    "depth": specs.resources.depth,
+                    "gate_count": specs.resources.num_gates,
+                }
+            except Exception:
+                self._specs_cache = {"depth": None, "gate_count": None}
         return self._specs_cache
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
@@ -458,12 +486,13 @@ class QAOAAugmenter:
 class ProbabilityAugmenter:
     """Angle encoding + StronglyEntanglingLayers with probability extraction."""
 
-    def __init__(self, n_qubits: int = N_QUBITS_DEFAULT, n_layers: int = 2, seed: int = 42):
+    def __init__(self, n_qubits: int = N_QUBITS_DEFAULT, n_layers: int = 2, seed: int = 42,
+                 device=None):
         self.name = f"angle_strong_{n_layers}L_prob"
         self.n_qubits = n_qubits
         self.n_layers = n_layers
         self._seed = seed
-        self._dev = qml.device("lightning.qubit", wires=n_qubits)
+        self._dev = device if device is not None else qml.device("lightning.qubit", wires=n_qubits)
         self._specs_cache = None
         rng = np.random.default_rng(seed)
         self._weights = rng.uniform(0, 2 * np.pi, (n_layers, n_qubits, 3))
@@ -482,11 +511,14 @@ class ProbabilityAugmenter:
 
     def _get_specs(self, x_sample):
         if self._specs_cache is None:
-            specs = qml.specs(self._circuit)(x_sample, self._weights)
-            self._specs_cache = {
-                "depth": specs.resources.depth,
-                "gate_count": specs.resources.num_gates,
-            }
+            try:
+                specs = qml.specs(self._circuit)(x_sample, self._weights)
+                self._specs_cache = {
+                    "depth": specs.resources.depth,
+                    "gate_count": specs.resources.num_gates,
+                }
+            except Exception:
+                self._specs_cache = {"depth": None, "gate_count": None}
         return self._specs_cache
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> None:

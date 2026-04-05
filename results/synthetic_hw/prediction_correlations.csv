@@ -1,0 +1,4 @@
+,raw_features_only,reservoir_3x3_Z_n100+50_exact,reservoir_3x3_Z_n100+50_s1000_packed
+raw_features_only,1.0,0.958,0.9992
+reservoir_3x3_Z_n100+50_exact,0.958,1.0,0.962
+reservoir_3x3_Z_n100+50_s1000_packed,0.9992,0.962,1.0

@@ -1,4 +1,8 @@
-"""Learning-based quantum feature augmenters (VQC with trained weights)."""
+"""Learning-based quantum feature augmenters (VQC with trained weights).
+
+By default circuits use lightning.qubit, but accept an optional ``device``
+argument so callers can supply an AWS Braket device or other backend.
+"""
 
 import time
 
@@ -21,7 +25,8 @@ class VQCAugmenter:
 
     def __init__(self, n_qubits: int = N_QUBITS_DEFAULT, n_layers: int = 2,
                  n_epochs: int = 200, lr: float = 0.01, batch_size: int = 64,
-                 train_subsample: int | None = 500, seed: int = 42):
+                 train_subsample: int | None = 500, seed: int = 42,
+                 device=None):
         self.name = f"vqc_strong_{n_qubits}q_{n_layers}L"
         self.n_qubits = n_qubits
         self.n_layers = n_layers
@@ -33,13 +38,17 @@ class VQCAugmenter:
         self._weights = None
         self._trained = False
         self._specs_cache = None
-        self._dev = qml.device("lightning.qubit", wires=n_qubits)
+        self._dev = device if device is not None else qml.device("lightning.qubit", wires=n_qubits)
+        # Adjoint diff only works on simulators; use parameter-shift for hardware
+        self._diff_method = "adjoint"
+        if device is not None and "braket" in getattr(device, "short_name", ""):
+            self._diff_method = "parameter-shift"
         self._build_circuit()
 
     def _build_circuit(self):
         n_q = self.n_qubits
 
-        @qml.qnode(self._dev, diff_method="adjoint")
+        @qml.qnode(self._dev, diff_method=self._diff_method)
         def circuit(x, weights):
             for layer in range(weights.shape[0]):
                 qml.AngleEmbedding(x, wires=range(n_q), rotation="Y")
@@ -108,12 +117,15 @@ class VQCAugmenter:
 
     def _get_specs(self, x_sample):
         if self._specs_cache is None:
-            xp = _pad_features(x_sample, self.n_qubits)
-            specs = qml.specs(self._circuit)(xp, self._weights)
-            self._specs_cache = {
-                "depth": specs.resources.depth,
-                "gate_count": specs.resources.num_gates,
-            }
+            try:
+                xp = _pad_features(x_sample, self.n_qubits)
+                specs = qml.specs(self._circuit)(xp, self._weights)
+                self._specs_cache = {
+                    "depth": specs.resources.depth,
+                    "gate_count": specs.resources.num_gates,
+                }
+            except Exception:
+                self._specs_cache = {"depth": None, "gate_count": None}
         return self._specs_cache
 
     def transform(self, X: np.ndarray) -> AugmenterResult:

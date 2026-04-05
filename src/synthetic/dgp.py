@@ -56,18 +56,26 @@ def generate_regime_data(config: DGPConfig) -> pd.DataFrame:
     })
 
 
-def save_data(df: pd.DataFrame, data_dir: str, seed: int) -> Path:
+def _parquet_path(data_dir: str, config: DGPConfig) -> Path:
+    """Build cache filename that includes seed AND dataset size."""
+    # Default sizes (10k/10k) use the legacy name for backward compatibility
+    if config.n_train == 10_000 and config.n_test == 10_000:
+        return Path(data_dir) / f"seed_{config.seed}.parquet"
+    return Path(data_dir) / f"seed_{config.seed}_{config.n_train}_{config.n_test}.parquet"
+
+
+def save_data(df: pd.DataFrame, data_dir: str, config: DGPConfig) -> Path:
     """Save generated data to parquet."""
     path = Path(data_dir)
     path.mkdir(parents=True, exist_ok=True)
-    filepath = path / f"seed_{seed}.parquet"
+    filepath = _parquet_path(data_dir, config)
     df.to_parquet(filepath, index=False)
     return filepath
 
 
-def load_data(data_dir: str, seed: int) -> pd.DataFrame | None:
+def load_data(data_dir: str, config: DGPConfig) -> pd.DataFrame | None:
     """Load data from parquet if it exists."""
-    filepath = Path(data_dir) / f"seed_{seed}.parquet"
+    filepath = _parquet_path(data_dir, config)
     if filepath.exists():
         return pd.read_parquet(filepath)
     return None
@@ -78,10 +86,10 @@ def get_or_generate(config: DGPConfig, data_dir: str) -> tuple[np.ndarray, np.nd
 
     Returns (X_train, X_test, y_train, y_test, regime_train, regime_test).
     """
-    df = load_data(data_dir, config.seed)
+    df = load_data(data_dir, config)
     if df is None:
         df = generate_regime_data(config)
-        save_data(df, data_dir, config.seed)
+        save_data(df, data_dir, config)
 
     feature_cols = ["X1", "X2", "X3", "X4"]
     train = df[df["split"] == "train"]

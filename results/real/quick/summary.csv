@@ -1,0 +1,4 @@
+augmenter_name,model_name,mse,mae,pearson_r,n_predictions,n_eval_dates,n_tickers,n_features_total,n_features_augmented,n_trainable_params,n_random_params,circuit_depth,qubit_count,gate_count
+qres_3x2_14q,ridge,0.00116,0.023677,0.145205,78,26,3,56,42,0,378,,14.0,
+identity,ridge,0.001292,0.024181,0.000232,78,26,3,14,0,0,0,,,
+poly_deg2,ridge,0.002497,0.032816,-0.033108,78,26,3,119,105,0,0,,,

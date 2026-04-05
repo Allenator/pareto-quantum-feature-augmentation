@@ -12,6 +12,7 @@ All documentation in `docs/` is listed here. Update this index whenever document
 - [Unified Quantum Design](designs/unified_quantum_design.md) — Factorial design strategy for systematically comparing quantum feature maps across 7 independent dimensions
 - [Classical Baselines](designs/classical_baselines.md) — Classical feature augmentation methods: polynomial, log/abs, RFF, oracle, and comparison table
 - [Quantum Reservoir](designs/quantum_reservoir.md) — Optimal quantum feature augmentation strategy: circuit structure, design justification, usage, and integration
+- [Real Financial Data Design](designs/real.md) — Walk-forward backtesting, feature construction, and dimensionality strategy for S&P 500 excess return prediction
 
 ## Results
 
