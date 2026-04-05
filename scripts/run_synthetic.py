@@ -155,11 +155,11 @@ SEEDS = [42, 123, 456, 789, 1024]
 
 
 def run_static_sweep():
-    """Full static augmenter sweep: all configs x Ridge x 5 seeds."""
+    """Full static augmenter sweep: all configs x Ridge+Lasso x 5 seeds."""
     config = ExperimentConfig(
         dgp=DGPConfig(),
         augmenters=ALL_STATIC,
-        models=[ModelConfig("ridge")],
+        models=[ModelConfig("ridge"), ModelConfig("lasso")],
         seeds=SEEDS,
         run_id="static_sweep",
     )

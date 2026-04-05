@@ -83,11 +83,19 @@ def classify(name: str) -> tuple[str, str] | None:
 def _aggregate(df: pd.DataFrame) -> pd.DataFrame:
     agg = df.groupby("augmenter_name").agg(
         n_features=("n_features_total", "first"),
-        # Test
+        # Test MSE
         mse_all=("mse", "mean"), mse_all_std=("mse", "std"),
         mse_r1=("mse_regime1", "mean"), mse_r1_std=("mse_regime1", "std"),
         mse_r2=("mse_regime2", "mean"), mse_r2_std=("mse_regime2", "std"),
-        # Train
+        # Test MAE
+        mae_all=("mae", "mean"), mae_all_std=("mae", "std"),
+        mae_r1=("mae_regime1", "mean"), mae_r1_std=("mae_regime1", "std"),
+        mae_r2=("mae_regime2", "mean"), mae_r2_std=("mae_regime2", "std"),
+        # Test Corr
+        corr_all=("pearson_r", "mean"), corr_all_std=("pearson_r", "std"),
+        corr_r1=("pearson_r_regime1", "mean"), corr_r1_std=("pearson_r_regime1", "std"),
+        corr_r2=("pearson_r_regime2", "mean"), corr_r2_std=("pearson_r_regime2", "std"),
+        # Train MSE
         mse_train_all=("mse_train", "mean"), mse_train_all_std=("mse_train", "std"),
         mse_train_r1=("mse_train_regime1", "mean"), mse_train_r1_std=("mse_train_regime1", "std"),
         mse_train_r2=("mse_train_regime2", "mean"), mse_train_r2_std=("mse_train_regime2", "std"),
@@ -109,22 +117,33 @@ def _aggregate(df: pd.DataFrame) -> pd.DataFrame:
     return agg.dropna(subset=["family"])
 
 
-def build_long_df(df: pd.DataFrame) -> pd.DataFrame:
+def build_long_df(df: pd.DataFrame, metric="mse") -> pd.DataFrame:
+    """Build long-form for a given metric. Supports 'mse', 'mae', 'corr'."""
     agg = _aggregate(df)
+
+    # Map metric to column names — (all, r1, r2) with std variants
+    col_map = {
+        "mse": (("mse_all", "mse_all_std"), ("mse_r1", "mse_r1_std"), ("mse_r2", "mse_r2_std")),
+        "mae": (("mae_all", "mae_all_std"), ("mae_r1", "mae_r1_std"), ("mae_r2", "mae_r2_std")),
+        "corr": (("corr_all", "corr_all_std"), ("corr_r1", "corr_r1_std"), ("corr_r2", "corr_r2_std")),
+    }
+    cols = col_map[metric]
+    REGIMES = ["All Data", "Regime 1 (Linear)", "Regime 2 (Nonlinear)"]
+
     rows = []
     for _, r in agg.iterrows():
         base = {"augmenter": r.augmenter_name, "family": r.family,
                 "group": r.group, "n_features": r.n_features}
-        rows.append({**base, "regime": "All Data", "mse": r.mse_all, "mse_std": r.mse_all_std})
-        rows.append({**base, "regime": "Regime 1 (Linear)", "mse": r.mse_r1, "mse_std": r.mse_r1_std})
-        rows.append({**base, "regime": "Regime 2 (Nonlinear)", "mse": r.mse_r2, "mse_std": r.mse_r2_std})
+        for regime, (val_col, std_col) in zip(REGIMES, cols):
+            if val_col is None:
+                continue
+            rows.append({**base, "regime": regime,
+                         "value": r.get(val_col), "value_std": r.get(std_col)})
 
-    long = pd.DataFrame(rows)
-    long["regime"] = pd.Categorical(
-        long["regime"],
-        categories=["All Data", "Regime 1 (Linear)", "Regime 2 (Nonlinear)"],
-        ordered=True,
-    )
+    long = pd.DataFrame(rows).dropna(subset=["value"])
+    long["regime"] = pd.Categorical(long["regime"],
+                                     categories=[r for r in REGIMES if r in long["regime"].values],
+                                     ordered=True)
     return long
 
 
@@ -201,15 +220,58 @@ def _apply_legend_groups(fig, long):
         trace.legendrank = _legend_rank(family, group)
 
 
-def _apply_layout(fig, title, log_y=False):
+def _compute_bounds():
+    """Compute per-regime theoretical bounds from DGP data."""
+    from src.synthetic.dgp import get_or_generate
+    from src.synthetic.config import DGPConfig
+    _, _, _, y_te, _, r_te = get_or_generate(DGPConfig(), "data/synthetic")
+
+    var_all = float(np.var(y_te))
+    var_r1 = float(np.var(y_te[r_te == 1]))
+    var_r2 = float(np.var(y_te[r_te == 2]))
+    mae_floor = float(np.sqrt(2 / np.pi))
+
+    return {
+        "MSE": {
+            "All Data": 1.0,
+            "Regime 1 (Linear)": 1.0,
+            "Regime 2 (Nonlinear)": 1.0,
+            "caption": "Dashed line represents noise floor due to ε (MSE = Var(ε) = 1)",
+        },
+        "MAE": {
+            "All Data": mae_floor,
+            "Regime 1 (Linear)": mae_floor,
+            "Regime 2 (Nonlinear)": mae_floor,
+            "caption": f"Dashed line represents noise floor due to ε (MAE = √(2/π) ≈ {mae_floor:.3f})",
+        },
+        "Correlation": {
+            "All Data": np.sqrt(1 - 1 / var_all),
+            "Regime 1 (Linear)": np.sqrt(1 - 1 / var_r1),
+            "Regime 2 (Nonlinear)": np.sqrt(1 - 1 / var_r2),
+            "caption": "Dashed line represents correlation ceiling ρ_max = √(1 − Var(ε)/Var(Y))",
+        },
+    }
+
+
+def _apply_layout(fig, title, metric_name="MSE", log_y=False, bounds=None):
     """Common layout for all figures."""
-    fig.add_hline(y=1.0, line_dash="dot", line_color="gray", opacity=0.5)
-    fig.add_annotation(
-        text="Dashed line represents noise floor due to ε",
-        xref="paper", yref="paper",
-        x=0.5, y=-0.30, showarrow=False,
-        font=dict(size=11, color="gray"), xanchor="center",
-    )
+    if bounds and metric_name in bounds:
+        mb = bounds[metric_name]
+        # Per-regime bounds on faceted subplots
+        regimes = ["All Data", "Regime 1 (Linear)", "Regime 2 (Nonlinear)"]
+        for col_idx, regime in enumerate(regimes, start=1):
+            val = mb.get(regime)
+            if val is not None:
+                fig.add_hline(y=float(val), line_dash="dot", line_color="gray", opacity=0.5,
+                              row=1, col=col_idx)
+        caption = mb.get("caption")
+        if caption:
+            fig.add_annotation(
+                text=caption,
+                xref="paper", yref="paper",
+                x=0.5, y=-0.30, showarrow=False,
+                font=dict(size=11, color="gray"), xanchor="center",
+            )
     fig.update_layout(
         title=dict(text=title, font=dict(size=16)),
         height=600, width=1500,
@@ -228,32 +290,31 @@ def _apply_layout(fig, title, log_y=False):
                             if "regime=" in str(a.text) else None)
 
 
-def make_test_fig(long, color_map, symbol_map, log_y=False):
-    """1x3 test MSE faceted by regime."""
+def make_test_fig(long, color_map, symbol_map, metric_name="MSE", log_y=False, bounds=None):
+    """1xN test metric faceted by regime."""
     title_suffix = " (log scale)" if log_y else ""
     long = long.copy()
     long["hover"] = (
         "<b>" + long["augmenter"] + "</b><br>"
         + "Family: " + long["family"] + "<br>"
         + "Features: " + long["n_features"].astype(str) + "<br>"
-        + "MSE: " + long["mse"].round(3).astype(str)
-        + " ± " + long["mse_std"].round(3).astype(str)
+        + f"{metric_name}: " + long["value"].round(3).astype(str)
+        + " ± " + long["value_std"].round(3).astype(str)
     )
 
     fig = px.line(
         long.sort_values(["family", "n_features"]),
-        x="n_features", y="mse", error_y="mse_std",
+        x="n_features", y="value", error_y="value_std",
         color="family", symbol="family",
         facet_col="regime", markers=True,
         custom_data=["hover"], log_y=log_y,
         color_discrete_map=color_map, symbol_map=symbol_map,
-        labels={"n_features": "# Features", "mse": "MSE", "family": "Method"},
-        title=f"Static Augmenter Sweep — Test MSE vs Feature Count{title_suffix}",
-        category_orders={"regime": ["All Data", "Regime 1 (Linear)", "Regime 2 (Nonlinear)"]},
+        labels={"n_features": "# Features", "value": metric_name, "family": "Method"},
+        title=f"Static Augmenter Sweep — Test {metric_name} vs Feature Count{title_suffix}",
     )
     fig.update_traces(hovertemplate="%{customdata[0]}<extra></extra>", marker_size=8)
     _apply_legend_groups(fig, long)
-    _apply_layout(fig, f"Static Augmenter Sweep — Test MSE vs Feature Count{title_suffix}", log_y)
+    _apply_layout(fig, f"Static Augmenter Sweep — Test {metric_name} vs Feature Count{title_suffix}", metric_name, log_y, bounds)
     return fig
 
 
@@ -363,14 +424,16 @@ def main():
 
     df = load_results()
     color_map, symbol_map = build_style_maps()
+    bounds = _compute_bounds()
 
-    # Test-only plots
-    long = build_long_df(df)
-    for log_y, suffix in [(False, ""), (True, "_log")]:
-        fig = make_test_fig(long, color_map, symbol_map, log_y=log_y)
-        path = FIGURES_DIR / f"test_mse_vs_features{suffix}.html"
-        fig.write_html(str(path), include_plotlyjs=True)
-        print(f"Saved: {path}")
+    # Test metric plots (MSE, MAE, Correlation)
+    for metric, label in [("mse", "MSE"), ("mae", "MAE"), ("corr", "Correlation")]:
+        long = build_long_df(df, metric=metric)
+        for log_y, suffix in [(False, ""), (True, "_log")]:
+            fig = make_test_fig(long, color_map, symbol_map, metric_name=label, log_y=log_y, bounds=bounds)
+            path = FIGURES_DIR / f"test_{metric}_vs_features{suffix}.html"
+            fig.write_html(str(path), include_plotlyjs=True)
+            print(f"Saved: {path}")
 
     # Train / Test / Overfit 3x3 panel
     long_tt = build_train_test_long_df(df)
