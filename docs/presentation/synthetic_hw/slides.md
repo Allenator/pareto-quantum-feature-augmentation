@@ -173,7 +173,7 @@ ceiling.
 
 ---
 
-## Slide 12 — Matched noise injection (Analysis 4)
+## Slide 12 — Matched noise injection (Analysis 3)
 
 ![MSE vs injected-σ sweep, σ* markers](../../../plots/synthetic_hw/noise_injection.png)
 

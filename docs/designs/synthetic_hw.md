@@ -259,7 +259,7 @@ quantum-circuit level (zero-noise extrapolation, probabilistic error
 cancellation, Pauli twirling, or dynamical decoupling) — not by classical
 post-processing of the output features.
 
-### (4) Matched classical noise injection — `noise_injection.py` — ✅ complete
+### (3) Matched classical noise injection — `noise_injection.py` — ✅ complete
 
 For each Rigetti source, inject i.i.d. Gaussian noise of variance σ² into
 the **exact-simulator quantum features**, vary σ from 0 to 0.8, and report
@@ -282,7 +282,7 @@ Takeaways:
   Ankaa-3 features behave like exact-sim features corrupted by Gaussian
   noise of standard deviation ~0.5.
 - **Complements Analysis 1, does not replace it.** Analysis 1's λ = 0.26,
-  σ_g = 0.16 is a per-measurement physical decomposition; Analysis 4's
+  σ_g = 0.16 is a per-measurement physical decomposition; Analysis 3's
   σ* = 0.5 is the task-level one-number summary. Both are useful for
   different audiences.
 
@@ -292,7 +292,7 @@ Output: `plots/synthetic_hw/noise_injection.png`,
 
 ## Synthesis of analyses
 
-Putting Analyses 1, 2, and 4 together:
+Putting Analyses 1, 2, and 3 together:
 
 1. The Rigetti Ankaa-3 output on our reservoir circuit is ~80 % attenuated
    and noisy: λ ≈ 0.25, σ_g ≈ 0.15, σ_shot ≈ 0.03. Packing (4 qubit vs 80

@@ -129,6 +129,46 @@ A 2×2 factorial study isolates the contributions of regime features and quantum
 
 The quantum augmenter (modular mapping) is the top performer in all 4 ablation cells. Cross-asset features provide marginal value beyond the per-stock quantum features for this 10-stock universe.
 
+## Part III — Quantum Hardware Validation
+
+### Rigetti Ankaa-3 Benchmark
+
+The Pareto-optimal quantum reservoir is validated on real QPU hardware via AWS Braket. The reservoir circuit uses only 4 qubits, so we pack **20 independent 4-qubit circuits onto 80 of Ankaa-3's 82 qubits per Braket task** — a ~20× reduction in API calls (and cost) relative to running each sample as its own task.
+
+![Hardware vs Simulator Fidelity](plots/synthetic_hw/three_way_overlay.png)
+
+**Configuration**: 3-reservoir × 3-layer Z-observable reservoir, seed 42, 1000 shots, Rigetti Ankaa-3 and SV1 state-vector simulator for shot-noise-only reference.
+
+| Method | Features | Ridge MSE (n=1000+500) | Δ vs raw |
+|---|---:|---:|---:|
+| Raw features only (floor) | 4 | 5.66 | — |
+| Exact simulator (ceiling) | 16 | **2.59** | **−54 %** |
+| Rigetti Ankaa-3 (1000 shots) | 16 | 5.43 | −4 % |
+
+The ~50 % MSE reduction that exact simulation delivers collapses to ≤ 6 % on real hardware across all tested data sizes (100+50, 500+250, 1000+500).
+
+### Noise Characterisation
+
+Fitted two-parameter noise model `R = λ · E + shot_noise(N=1000) + 𝒩(0, σ_g²)`:
+
+![Noise Model Fit Diagnostic](plots/synthetic_hw/noise_model_fit.png)
+
+| Source | λ (damping) | σ_g (gate) | σ_shot | observed corr |
+|---|---:|---:|---:|---:|
+| SV1 (shot-only self-check) | 1.001 | 0.000 | 0.030 | 0.994 |
+| Rigetti singleton 4q | 0.207 | 0.150 | 0.032 | 0.322 |
+| Rigetti **packed 80q** (pooled) | **0.258** | **0.159** | 0.032 | 0.337 |
+
+Rigetti Ankaa-3 attenuates Pauli expectations to ~25 % of their ideal magnitude (depolarisation-dominated), with Gaussian gate/readout noise ~5× the shot-noise floor. Qubit-packing density (4q vs 80q active per task) does not produce a measurable incremental crosstalk penalty.
+
+### Can Classical Post-Processing Recover the Signal?
+
+We tested five mitigation strategies — feature-only regression, damping-inversion rescaling by `1/λ`, and top-k feature selection ranked by train-set correlation. **None meaningfully close the gap** between hardware and the exact-simulator ceiling. The single stronger-than-Ridge-CV result (damping correction at n=100+50: 5.46 → 4.64) fails to replicate at larger n and appears to be a finite-α-grid artefact.
+
+**Conclusion**: The information destroyed by hardware noise is not classically recoverable from the saved feature matrix. Closing the gap requires quantum-level error mitigation (ZNE, PEC, dynamical decoupling) or improved device fidelity. As a one-number equivalent, Rigetti's effect on downstream Ridge MSE matches injecting Gaussian noise of **σ ≈ 0.5** into the exact-simulator features.
+
+Full results, tables, and per-figure analysis: [docs/results/synthetic_hw.md](docs/results/synthetic_hw.md). Methodology and caveats: [docs/designs/synthetic_hw.md](docs/designs/synthetic_hw.md). Data-file inventory: [docs/designs/synthetic_hw_data.md](docs/designs/synthetic_hw_data.md).
+
 ## Setup
 
 Requires Python 3.14+ and [uv](https://docs.astral.sh/uv/). DataBento API key required for real data experiments.
@@ -157,6 +197,15 @@ uv run python scripts/run_real.py full             # 10 tickers, daily, 5 seeds
 uv run python scripts/run_real.py ablation-full    # 2×2 correlation ablation, 5 seeds
 uv run python scripts/plot_real_pareto.py          # Pareto + bar plots (5-seed aggregated)
 uv run python scripts/plot_real_ablation.py        # Ablation grouped bars + delta plots
+
+# ── Hardware validation (Part III, AWS Braket) ──
+uv run python scripts/run_synthetic_hw_packed.py   # pack 20 × 4q reservoirs on Ankaa-3 (80 qubits)
+uv run python scripts/run_synthetic_hw_singleton.py # one 4q reservoir per task (clean crosstalk test)
+uv run python scripts/plot_synthetic_hw.py         # hardware vs sim MSE plots
+uv run python scripts/plot_feature_fidelity.py     # per-measurement fidelity and error histograms
+uv run python scripts/fit_noise_model.py           # Analysis 1 — fit (lambda, sigma_g) per source
+uv run python scripts/mitigation_study.py          # Analysis 2 — Ridge under 10 mitigation strategies
+uv run python scripts/noise_injection.py           # Analysis 3 — match sigma* of injected Gaussian
 ```
 
 ## Project Structure
@@ -183,15 +232,29 @@ src/real/                  # Real data pipeline (Part II)
 scripts/
   run_synthetic.py         # Synthetic experiment entry point
   run_real.py              # Real data entry point (quick/monthly/full/ablation)
+  run_synthetic_hw.py      # Hardware experiment entry point (AWS Braket, PennyLane path)
+  run_synthetic_hw_packed.py      # Native-Braket packed 20×4q reservoirs (Part III)
+  run_synthetic_hw_singleton.py   # pack_factor=1 runbook for clean crosstalk test
   plot_pareto_vs_classical.py  # Synthetic Pareto plots
   plot_real_pareto.py      # Real data Pareto plots (5-seed aggregated)
   plot_real_ablation.py    # Correlation ablation grouped bar plots
+  plot_synthetic_hw.py     # Hardware vs simulator MSE plots
+  plot_feature_fidelity.py # Per-measurement fidelity and error histograms
+  fit_noise_model.py       # Analysis 1 — (λ, σ_g) per source
+  mitigation_study.py      # Analysis 2 — 10 mitigation strategies
+  noise_injection.py       # Analysis 3 — matched Gaussian σ*
+  compare_features.py      # Summary CSV + pairwise feature comparison helper
   quantum_reservoir.py     # Standalone quantum reservoir (library + CLI)
 
 data/                      # Cached datasets (git LFS)
+  synthetic/               # Synthetic DGP parquets (10k/10k canonical + small sizes for Part III)
 results/                   # Experiment results (JSON + CSV + parquet)
+  synthetic_hw/            # Hardware-validation CSVs (summary, noise model, mitigation, noise injection)
 plots/                     # Generated figures (HTML + PNG, git LFS)
-docs/                      # Design documents
+  synthetic_hw/            # Hardware-validation plots (fidelity, noise model, mitigation, injection)
+features/                  # Saved augmented feature matrices (git LFS)
+  synthetic_hw/            # Per-run `.npz` for exact / SV1 / Rigetti packed / singleton
+docs/                      # Design, results, presentation, changelog
 ```
 
 ## Documentation
@@ -202,6 +265,9 @@ See [docs/INDEX.md](docs/INDEX.md) for full documentation index:
 - [Quantum Reservoir](docs/designs/quantum_reservoir.md) — Optimal circuit design and usage
 - [Classical Baselines](docs/designs/classical_baselines.md) — Classical methods and comparison
 - [Real Financial Data Design](docs/designs/real.md) — DataBento pipeline, walk-forward backtesting, cross-asset extensions
+- [Synthetic-Data Hardware Benchmark — Design](docs/designs/synthetic_hw.md) — Rigetti Ankaa-3 packing / singleton methodology, circuit-family confounders, figure index
+- [Synthetic-Data Hardware Benchmark — Data Inventory](docs/designs/synthetic_hw_data.md) — Authoritative index of every saved `.npz` in `features/synthetic_hw/`, filename convention, and variant glossary
+- [Synthetic-Data Hardware Benchmark — Results](docs/results/synthetic_hw.md) — Numerical tables, noise-model calibration, mitigation study, matched noise injection
 
 ## Challenge Reference
 

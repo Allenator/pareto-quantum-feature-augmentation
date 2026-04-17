@@ -191,7 +191,7 @@ Full background is in `prep.md`; raw slide content is in `slides.md`.
 
 ---
 
-## Slide 12 — Matched noise injection (Analysis 4)
+## Slide 12 — Matched noise injection (Analysis 3)
 
 **Say:**
 - Take the exact-sim quantum features. Add i.i.d. Gaussian noise of standard deviation σ. Sweep σ from 0 to 0.8. Re-fit Ridge at each σ.

@@ -374,7 +374,7 @@ Mitigation has to happen at the **quantum-circuit level**:
 
 ---
 
-## Slide 12 — Matched noise injection (Analysis 4)
+## Slide 12 — Matched noise injection (Analysis 3)
 
 ### Context
 
@@ -408,7 +408,7 @@ From Analysis 1 we have λ ≈ 0.26 and σ_g ≈ 0.16 for packed Rigetti. The ex
 σ_eff ≈ 0.26
 ```
 
-Analysis 4's σ* ≈ 0.46 (at n=100+50) is about 1.8× this. The mismatch reflects:
+Analysis 3's σ* ≈ 0.46 (at n=100+50) is about 1.8× this. The mismatch reflects:
 - σ_eff is per-measurement; σ* is per-Ridge-pipeline.
 - Ridge amplifies noise through α choice and coefficient interactions.
 

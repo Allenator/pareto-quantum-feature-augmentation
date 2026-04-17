@@ -14,7 +14,7 @@ Ankaa-3 / SV1 / exact-simulator feature files. Scope: the
 | `scripts/run_synthetic_hw_singleton.py` | Hardware runbook (not executed — no QPU access) for `pack_factor = 1` Rigetti runs. Reuses `build_packed_circuit` from the packed script. |
 | `scripts/fit_noise_model.py` | **Analysis 1**: fit `R = λ·E + shot_noise(n=1000) + 𝒩(0, σ_g)` per source (SV1 shot-only, singleton 4q Rigetti, packed 80q Rigetti pooled). Output CSV + diagnostic overlay histogram. |
 | `scripts/mitigation_study.py` | **Analysis 2**: compare Ridge test MSE across 10 strategies — `raw_only`, `exact_ideal`, `hw_baseline`, `hw_quantum_only`, `hw_damping_corrected`, `hw_top{1,2,4,8,all}`. Output CSV + grouped bar chart. |
-| `scripts/noise_injection.py` | **Analysis 4**: find the Gaussian σ* such that `exact + 𝒩(0, σ*)` matches each Rigetti Ridge MSE. Output CSV + MSE-vs-σ sweep plot with σ* markers. |
+| `scripts/noise_injection.py` | **Analysis 3**: find the Gaussian σ* such that `exact + 𝒩(0, σ*)` matches each Rigetti Ridge MSE. Output CSV + MSE-vs-σ sweep plot with σ* markers. |
 
 Dependencies are unchanged — all scripts use the existing `numpy`, `plotly`,
 `sklearn`, `amazon-braket-sdk` stack plus the in-repo `src/synthetic/`
@@ -42,7 +42,7 @@ convention `{augmenter}_n{n_train}+{n_test}[_s{shots}]_{variant}.npz`:
 
 | Path | Status | Purpose |
 |---|---|---|
-| `docs/designs/synthetic_hw.md` | updated | Design doc — methodology, circuit families, confounders, figure index. Analyses 1/2/4 promoted from *planned* to ✅ complete. |
+| `docs/designs/synthetic_hw.md` | updated | Design doc — methodology, circuit families, confounders, figure index. Analyses 1/2/3 promoted from *planned* to ✅ complete. |
 | `docs/designs/synthetic_hw_data.md` | new | Authoritative per-file inventory, filename convention, variant glossary, verified (exact, hardware) input-alignment pairs. |
 | `docs/results/synthetic_hw.md` | new | Comprehensive numerical results and analysis. |
 | `docs/INDEX.md` | updated | Registers the new docs. |

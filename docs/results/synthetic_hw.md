@@ -155,7 +155,7 @@ Plot: [`mitigation.png`](../../plots/synthetic_hw/mitigation.png).
 
 ---
 
-## 5. Matched classical noise injection (Analysis 4)
+## 5. Matched classical noise injection (Analysis 3)
 
 For each Rigetti source, `noise_injection.py` sweeps σ ∈ [0, 0.8] adding
 `𝒩(0, σ²)` to the exact-sim quantum features and measures Ridge test MSE
