@@ -71,7 +71,7 @@ Key findings from the 2×2 encoding-structure comparison:
 | **RFF** (6–96 components) | 10–100 | 2.48–1.45 | Random cosine projections (RBF kernel) |
 | **Polynomial** (deg 2) | 14 | 2.88 ± 1.03 | All pairwise interactions + squares |
 | **Interaction + Log/Abs** | 18 | 2.62 ± 0.66 | Hand-crafted nonlinear transforms |
-| **Oracle** | 6 | 2.41 ± 0.02 | Exact DGP terms ($X_1 X_3$, $\log|X_2|$) |
+| **Oracle** | 6 | 2.41 ± 0.02 | Exact DGP terms ($X_1 X_3$, $\log\vert X_2\vert$) |
 | **Identity** | 4 | 4.68 ± 0.06 | Raw features, no augmentation |
 
 RFF is the strongest classical competitor — both RFF and quantum reservoir use random projections, but through different mechanisms (classical cosine vs quantum circuit).

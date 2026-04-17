@@ -17,7 +17,7 @@ These findings motivated a systematic refactoring: decompose the quantum circuit
 Every quantum feature map in the unified framework follows a single template:
 
 $$
-|0\rangle^{\otimes n} \xrightarrow{\text{Encoding}} \xrightarrow{[\text{Rot} + \text{CNOT}] \times L} \xrightarrow{\text{Rot}_{\text{final}}} \xrightarrow{\text{Measure}}
+\vert 0\rangle^{\otimes n} \xrightarrow{\text{Encoding}} \xrightarrow{[\text{Rot} + \text{CNOT}] \times L} \xrightarrow{\text{Rot}_{\text{final}}} \xrightarrow{\text{Measure}}
 $$
 
 The circuit is parameterized by 7 independent dimensions. Each ensemble member uses the same structure with a different random seed.
@@ -32,7 +32,7 @@ How classical data $\mathbf{x} = (x_1, x_2, x_3, x_4)$ is embedded into the quan
 |-------|---------|-----------|
 | `RZ` | $H \to R_Z(x_i) \to H$ per qubit | Phase encoding. Equivalent to $R_X(x_i)$. No entanglement from encoding. |
 | `IQP` | $H \to R_Z(x_i) \to \text{MultiRZ}(x_i x_j) \to H$ | Phase encoding + data-dependent pairwise interaction. The ZZ pairs follow the `connectivity` topology. All data-dependent gates commute (diagonal circuit). |
-| `angle` | $R_Y(x_i)$ per qubit | Amplitude encoding. Creates superposition $\cos(x_i/2)|0\rangle + \sin(x_i/2)|1\rangle$. No entanglement from encoding. |
+| `angle` | $R_Y(x_i)$ per qubit | Amplitude encoding. Creates superposition $\cos(x_i/2)\vert 0\rangle + \sin(x_i/2)\vert 1\rangle$. No entanglement from encoding. |
 
 **Key contrast**: IQP creates entanglement through data-dependent diagonal gates (phase correlations), while angle encoding relies on subsequent CNOT layers for entanglement (amplitude correlations). RZ is the non-interacting phase baseline.
 
@@ -67,7 +67,7 @@ Measurement strategy on the 4 data qubits. Determines the number of features per
 | `Z+ZZ` | $\langle Z_i \rangle + \langle Z_i Z_j \rangle$ | 10 |
 | `XYZ` | $\langle X_i \rangle + \langle Y_i \rangle + \langle Z_i \rangle$ | 12 |
 | `full` | Single ($X$, $Y$, $Z$) + pairwise ($XX$, $YY$, $ZZ$) | 30 |
-| `prob` | Computational basis probabilities $P(|b_1 b_2 b_3 b_4\rangle)$ | 16 |
+| `prob` | Computational basis probabilities $P(\vert b_1 b_2 b_3 b_4\rangle)$ | 16 |
 
 ### 5. Random Rotations (`random_rot`)
 
@@ -144,8 +144,8 @@ Each configuration is characterized by objective complexity metrics (no subjecti
 | `n_random_params` | Fixed random parameters in Rot gates |
 | `effective_rank` | Intrinsic dimensionality of augmented features (SVD entropy) |
 | `nonlinearity_score` | Fraction of each feature not explained by linear function of input |
-| `feature_target_alignment` | Average $|\rho(\tilde{x}_j, Y)|$ — individual feature predictiveness |
-| `coef_l2_norm` | $||\hat{\beta}||_2$ of Ridge coefficients — model weight magnitude |
+| `feature_target_alignment` | Average $\vert\rho(\tilde{x}_j, Y)\vert$ — individual feature predictiveness |
+| `coef_l2_norm` | $\lVert\hat{\beta}\rVert_2$ of Ridge coefficients — model weight magnitude |
 
 ## Scaling Strategy
 

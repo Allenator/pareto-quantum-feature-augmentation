@@ -218,7 +218,7 @@ Instead of encoding a single stock's features into the quantum circuit, encode t
 This is the most natural fit for quantum circuits: a $k$-qubit circuit represents $2^k$ amplitudes, which can encode exponentially many relationships between $k$ assets. The quantum circuit operates on the domain where it has the strongest theoretical advantage — extracting nonlinear structure from a correlation/covariance matrix.
 
 $$
-\phi_{q}^{corr}(C_t) = \langle \psi(\text{vech}(C_t)) | \hat{O} | \psi(\text{vech}(C_t)) \rangle
+\phi_{q}^{corr}(C_t) = \langle \psi(\text{vech}(C_t)) \vert \hat{O} \vert \psi(\text{vech}(C_t)) \rangle
 $$
 
 where $\text{vech}(C_t)$ is the half-vectorization of the correlation matrix.
