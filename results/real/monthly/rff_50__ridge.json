@@ -1,17 +1,18 @@
 {
   "augmenter_name": "rff_50",
   "model_name": "ridge",
-  "mse": 0.00168,
-  "mae": 0.029801,
-  "pearson_r": 0.159125,
-  "n_predictions": 180,
-  "n_eval_dates": 18,
+  "mse": 0.001883,
+  "mae": 0.03006,
+  "pearson_r": -0.052087,
+  "n_predictions": 170,
+  "n_eval_dates": 17,
   "n_tickers": 10,
-  "n_features_total": 64,
+  "n_features_total": 91,
   "n_features_augmented": 50,
   "n_trainable_params": 0,
-  "n_random_params": 700,
+  "n_random_params": 850,
   "circuit_depth": null,
   "qubit_count": null,
-  "gate_count": null
+  "gate_count": null,
+  "n_corr_quantum_features": 24
 }

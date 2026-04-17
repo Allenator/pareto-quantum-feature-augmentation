@@ -15,7 +15,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 from tqdm import tqdm
 
 from src.real.config import ExperimentConfig
-from src.real.data import FEATURE_COLS, build_dataset
+from src.real.data import FEATURE_COLS, REGIME_COLS, build_dataset
 from src.synthetic.augmenters.base import AugmenterResult, _make_result
 from src.synthetic.runner import _build_augmenter, _build_model, _run_single_augmenter
 
@@ -179,12 +179,17 @@ class BacktestRunner:
         else:
             return _build_augmenter(aug_config), False
 
-    def _precompute_features(self, X_all, y_train, train_mask, augmenters, aug_is_quantum):
+    def _precompute_features(self, X_all, y_train, train_mask, augmenters, aug_is_quantum,
+                             corr_all=None, date_row_idx=None):
         """Refit scaler on training window, augment full dataset, cache results.
 
         Quantum augmenters run in parallel via ProcessPoolExecutor (each worker
         builds its own augmenter to avoid pickling QNode objects). Classical
         augmenters run in the main process (fast, no benefit from parallelism).
+
+        If corr_all is provided and config.corr_augmenter is set, also runs a
+        dedicated quantum augmenter on the correlation matrix features and appends
+        its output to every augmenter's cached features.
 
         Returns (cached_features, aug_metadata) where cached_features maps
         augmenter name -> full-dataset augmented feature array.
@@ -230,6 +235,40 @@ class BacktestRunner:
                     cached[name] = features
                     metadata[name] = meta
 
+        # Correlation quantum channel (Approach 3)
+        if self.config.corr_augmenter is not None and corr_all is not None:
+            from src.real.quantum_unified_real import UnifiedReservoirAugmenter
+
+            # Derive date-level train mask from row-level train mask
+            train_row_indices = set(np.where(train_mask)[0])
+            train_date_indices = set(date_row_idx[i] for i in train_row_indices)
+            train_mask_dates = np.array([i in train_date_indices for i in range(len(corr_all))])
+
+            # Scale correlation data separately (bounded [-1,1], different scale)
+            corr_scaler = StandardScaler().fit(corr_all[train_mask_dates])
+            corr_scaled = corr_scaler.transform(corr_all)
+            if clip_range:
+                corr_scaled = np.clip(corr_scaled, -clip_range, clip_range)
+
+            # Build and run dedicated correlation augmenter
+            corr_aug = UnifiedReservoirAugmenter(**self.config.corr_augmenter)
+            dummy_y = np.zeros(np.count_nonzero(train_mask_dates))
+            corr_aug.fit(corr_scaled[train_mask_dates], dummy_y)
+            corr_result = corr_aug.transform(corr_scaled)
+
+            # Extract only quantum features (not the 45 raw correlation inputs)
+            corr_quantum = corr_result.features[:, corr_result.n_original:]
+
+            # Broadcast from date-level (n_dates, q) to row-level (n_rows, q)
+            corr_broadcast = corr_quantum[date_row_idx]
+
+            # Append to ALL cached augmenter features and update metadata
+            n_corr_features = corr_broadcast.shape[1]
+            for name in cached:
+                cached[name] = np.hstack([cached[name], corr_broadcast])
+                metadata[name]["n_features_total"] += n_corr_features
+                metadata[name]["n_corr_quantum_features"] = n_corr_features
+
         return cached, metadata
 
     @staticmethod
@@ -252,7 +291,7 @@ class BacktestRunner:
           - "predictions": dict of (aug_name, model_name) -> DataFrame of OOS predictions
         """
         print("Loading dataset...")
-        dataset = build_dataset(self.config.data)
+        dataset, corr_triangle_df = build_dataset(self.config.data)
         print(f"Dataset: {len(dataset)} rows, {dataset['ticker'].nunique()} tickers, "
               f"dates {dataset['date'].min().date()} to {dataset['date'].max().date()}")
 
@@ -267,9 +306,21 @@ class BacktestRunner:
             aug, is_q = self._build_augmenter_for_config(cfg)
             augmenters[cfg.name] = aug
             aug_is_quantum[cfg.name] = is_q
-        print(f"Augmenters: {len(augmenters)} ({sum(aug_is_quantum.values())} quantum)")
+        print(f"Augmenters: {len(augmenters)} ({sum(aug_is_quantum.values())} quantum)"
+              + (f" + corr quantum" if self.config.corr_augmenter else ""))
 
-        X_all = dataset[FEATURE_COLS].values
+        # Per-stock features: 14 original, optionally + 3 regime
+        feature_cols = FEATURE_COLS + REGIME_COLS if self.config.use_regime_features else FEATURE_COLS
+        X_all = dataset[feature_cols].values
+
+        # Prepare correlation data for quantum encoding (Approach 3)
+        corr_all = None
+        date_row_idx = None
+        if self.config.corr_augmenter is not None:
+            unique_dates = sorted(dataset["date"].unique())
+            date_to_idx = {d: i for i, d in enumerate(unique_dates)}
+            corr_all = corr_triangle_df.reindex(unique_dates).values
+            date_row_idx = np.array([date_to_idx[d] for d in dataset["date"]])
         y_all = dataset["target"].values
 
         # Collect all OOS predictions per (augmenter, model)
@@ -297,6 +348,7 @@ class BacktestRunner:
                 t0 = time.perf_counter()
                 cached_features, new_meta = self._precompute_features(
                     X_all, y_train, train_mask, augmenters, aug_is_quantum,
+                    corr_all=corr_all, date_row_idx=date_row_idx,
                 )
                 aug_metadata.update(new_meta)
                 elapsed = time.perf_counter() - t0

@@ -39,3 +39,5 @@ class ExperimentConfig:
     features_dir: str = "features/real"
     run_id: str = field(default_factory=lambda: datetime.now().strftime("%Y%m%dT%H%M%S"))
     clip_range: float | None = 5.0
+    use_regime_features: bool = True    # include 3 cross-asset regime features
+    corr_augmenter: dict | None = None  # quantum correlation augmenter params (Approach 3)

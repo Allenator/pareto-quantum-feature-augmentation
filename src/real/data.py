@@ -19,6 +19,10 @@ FEATURE_COLS = [
     "vwret_5d", "ret_x_vol", "rsi_x_vol", "vol_minus_price_trend",
 ]
 
+# Cross-asset regime features (per-date, shared across tickers)
+REGIME_COLS = ["avg_corr_60d", "ret_dispersion", "pca_ev1_share"]
+CORR_LOOKBACK = 60
+
 
 def _cache_key(config: RealDataConfig) -> str:
     """Build a short hash from config for cache filenames."""
@@ -180,6 +184,69 @@ def _compute_vol_zscore(volume: pd.Series, avg_window: int, zscore_window: int =
     return (avg_vol - roll_mean) / roll_std.replace(0, np.nan)
 
 
+def _compute_cross_asset_features(
+    prices: pd.DataFrame, tickers: tuple[str, ...],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Compute cross-asset regime features and correlation triangle from raw prices.
+
+    Uses raw stock returns (not excess) to capture the cross-asset correlation
+    structure, which is orthogonal to the per-stock minus-market features.
+
+    Returns:
+        regime_df: DatetimeIndex → 3 columns (REGIME_COLS)
+        corr_triangle_df: DatetimeIndex → 45 columns (upper triangle of 10×10 corr matrix)
+    """
+    # Build wide close price DataFrame (n_dates, n_tickers)
+    close_wide = pd.DataFrame(
+        {t: prices[(t, "Close")] for t in tickers if (t, "Close") in prices.columns}
+    ).dropna()
+
+    n_tickers = close_wide.shape[1]
+    n_pairs = n_tickers * (n_tickers - 1) // 2
+
+    # Daily and 5-day returns
+    daily_ret = close_wide.pct_change().dropna()
+    ret_5d = close_wide.pct_change(5)
+
+    # --- Approach 1: Regime features ---
+
+    # ret_dispersion: cross-sectional std of 5-day returns per date
+    ret_dispersion = ret_5d.std(axis=1)
+
+    # Rolling 60-day correlation matrix → avg_corr and pca_ev1_share
+    avg_corr = pd.Series(dtype=float, index=daily_ret.index)
+    pca_ev1_share = pd.Series(dtype=float, index=daily_ret.index)
+
+    # --- Approach 3: Correlation triangle for quantum encoding ---
+    tri_cols = [f"corr_{i:02d}" for i in range(n_pairs)]
+    corr_triangle = pd.DataFrame(np.nan, index=daily_ret.index, columns=tri_cols)
+
+    for end_idx in range(CORR_LOOKBACK, len(daily_ret)):
+        window = daily_ret.iloc[end_idx - CORR_LOOKBACK:end_idx]
+        corr_mat = window.corr().values
+
+        # Upper triangle indices
+        triu_idx = np.triu_indices(n_tickers, k=1)
+        triu_vals = corr_mat[triu_idx]
+
+        date = daily_ret.index[end_idx]
+        avg_corr.loc[date] = np.nanmean(triu_vals)
+        corr_triangle.loc[date, :] = triu_vals
+
+        # First eigenvalue share
+        eigvals = np.linalg.eigvalsh(np.nan_to_num(corr_mat, nan=0.0))
+        pca_ev1_share.loc[date] = eigvals[-1] / max(eigvals.sum(), 1e-10)
+
+    regime_df = pd.DataFrame({
+        "avg_corr_60d": avg_corr,
+        "ret_dispersion": ret_dispersion,
+        "pca_ev1_share": pca_ev1_share,
+    })
+    corr_triangle_df = corr_triangle.astype(float)
+
+    return regime_df, corr_triangle_df
+
+
 def _compute_single_features(close: pd.Series, high: pd.Series,
                               low: pd.Series, volume: pd.Series) -> pd.DataFrame:
     """Compute raw features for a single asset (before stock-market subtraction).
@@ -263,22 +330,28 @@ def compute_features(prices: pd.DataFrame, ticker: str,
     return diff
 
 
-def build_dataset(config: RealDataConfig) -> pd.DataFrame:
-    """Build the full panel dataset: all tickers stacked, features + target.
+def build_dataset(config: RealDataConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build the full panel dataset with cross-asset features.
 
-    Returns DataFrame with columns: date, ticker, FEATURE_COLS..., target.
-    NaN rows (from lookback warmup and forward target shift) are dropped.
+    Returns:
+        dataset: DataFrame with columns [date, ticker, FEATURE_COLS, REGIME_COLS, target].
+        corr_triangle_df: DataFrame indexed by date with 45 columns (upper triangle
+            of rolling 60-day return correlation matrix). Used for quantum encoding.
     """
     cache_dir = Path(config.data_dir)
-    cache_path = cache_dir / f"dataset_{_cache_key(config)}.parquet"
+    cache_path = cache_dir / f"dataset_v2_{_cache_key(config)}.parquet"
+    corr_path = cache_dir / f"corr_triangle_{_cache_key(config)}.parquet"
 
-    if cache_path.exists():
+    if cache_path.exists() and corr_path.exists():
         df = pd.read_parquet(cache_path)
         df["date"] = pd.to_datetime(df["date"])
-        return df
+        corr_df = pd.read_parquet(corr_path)
+        corr_df.index = pd.to_datetime(corr_df.index)
+        return df, corr_df
 
     prices = download_prices(config)
 
+    # Per-stock features (14 columns each)
     panels = []
     for ticker in config.tickers:
         panel = compute_features(prices, ticker, config.market_ticker, config.prediction_horizon)
@@ -286,13 +359,19 @@ def build_dataset(config: RealDataConfig) -> pd.DataFrame:
 
     df = pd.concat(panels, ignore_index=True)
 
-    # Drop rows with any NaN (from lookback warmup or forward target shift)
-    df = df.dropna(subset=FEATURE_COLS + ["target"]).reset_index(drop=True)
+    # Cross-asset features (regime indicators + correlation triangle)
+    regime_df, corr_triangle_df = _compute_cross_asset_features(prices, config.tickers)
 
-    # Ensure date is datetime
+    # Merge regime features into panel by date (same for all tickers on a date)
     df["date"] = pd.to_datetime(df["date"])
+    regime_df.index = pd.to_datetime(regime_df.index)
+    df = df.merge(regime_df, left_on="date", right_index=True, how="left")
+
+    # Drop rows with any NaN (from lookback warmup or forward target shift)
+    df = df.dropna(subset=FEATURE_COLS + REGIME_COLS + ["target"]).reset_index(drop=True)
 
     # Cache
     df.to_parquet(cache_path, index=False)
+    corr_triangle_df.to_parquet(corr_path)
 
-    return df
+    return df, corr_triangle_df

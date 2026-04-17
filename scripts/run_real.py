@@ -42,13 +42,23 @@ QUANTUM_RESERVOIR = [
         {"n_qubits": 14, "n_layers": 5, "n_ensemble": 3}),
 ]
 
-N_FEATURES = 14  # len(FEATURE_COLS)
+N_FEATURES = 17  # 14 per-stock + 3 regime (FEATURE_COLS + REGIME_COLS)
 
 # Common kwargs for the winning synthetic design axes
 _UNIFIED_BASE = dict(
     n_features=N_FEATURES, encoding="angle", connectivity="circular",
     cnot_mixing=True, random_rot=True,
 )
+
+# Correlation quantum augmenter config (Approach 3: quantum encoding of corr matrix)
+# n_features = n_tickers * (n_tickers - 1) // 2 (upper triangle of corr matrix)
+def _corr_quantum(n_tickers: int) -> dict:
+    n_pairs = n_tickers * (n_tickers - 1) // 2
+    return dict(
+        n_features=n_pairs, n_qubits=min(8, n_pairs), encoding="angle",
+        connectivity="circular", cnot_mixing=True, random_rot=True,
+        observables="Z", n_layers=3, n_ensemble=3, qubit_mapping="modular", seed=42,
+    )
 
 # ── Unified quantum augmenters (angle + circular CNOT + configurable obs) ─
 # Uses "qunified" prefix to route through UnifiedReservoirAugmenter.
@@ -107,6 +117,7 @@ def run_quick():
         ],
         models=[ModelConfig("ridge")],
         run_id="quick",
+        corr_augmenter=_corr_quantum(3),
     )
     runner = BacktestRunner(config)
     return runner.run()
@@ -120,6 +131,7 @@ def run_monthly():
         augmenters=CLASSICAL + QUANTUM,
         models=MODELS,
         run_id="monthly",
+        corr_augmenter=_corr_quantum(10),
     )
     runner = BacktestRunner(config)
     return runner.run()
@@ -133,9 +145,45 @@ def run_full():
         augmenters=CLASSICAL + QUANTUM,
         models=MODELS,
         run_id="full",
+        corr_augmenter=_corr_quantum(10),
     )
     runner = BacktestRunner(config)
     return runner.run()
+
+
+def _ablation_config(n_tickers, use_regime, use_corr):
+    """Build ExperimentConfig for ablation study."""
+    tickers = ("AAPL", "MSFT", "NVDA") if n_tickers == 3 else RealDataConfig().tickers
+    tag = ("regime" if use_regime else "noregime") + ("_corr" if use_corr else "_nocorr")
+    # n_features must match: 17 with regime, 14 without
+    n_feat = 17 if use_regime else 14
+    base = dict(n_features=n_feat, encoding="angle", connectivity="circular",
+                cnot_mixing=True, random_rot=True)
+    return ExperimentConfig(
+        data=RealDataConfig(tickers=tickers),
+        backtest=BacktestConfig(step_days=21),
+        augmenters=[
+            AugmenterConfig("identity", "classical"),
+            AugmenterConfig("qunified_z_8q_3L_3ens", "quantum_fixed",
+                {**base, "n_qubits": 8, "observables": "Z", "n_layers": 3, "n_ensemble": 3}),
+        ],
+        models=[ModelConfig("ridge")],
+        run_id=f"ablation_{tag}",
+        use_regime_features=use_regime,
+        corr_augmenter=_corr_quantum(n_tickers) if use_corr else None,
+    )
+
+
+def run_ablation():
+    """2x2 ablation: regime features × correlation quantum encoding."""
+    for use_regime in [False, True]:
+        for use_corr in [False, True]:
+            config = _ablation_config(3, use_regime, use_corr)
+            print(f"\n{'='*60}")
+            print(f"Ablation: regime={use_regime}, corr_quantum={use_corr}")
+            print(f"{'='*60}")
+            runner = BacktestRunner(config)
+            runner.run()
 
 
 if __name__ == "__main__":
@@ -147,6 +195,8 @@ if __name__ == "__main__":
         run_monthly()
     elif mode == "full":
         run_full()
+    elif mode == "ablation":
+        run_ablation()
     else:
-        print(f"Usage: python scripts/run_real.py [quick|monthly|full]")
+        print(f"Usage: python scripts/run_real.py [quick|monthly|full|ablation]")
         sys.exit(1)
