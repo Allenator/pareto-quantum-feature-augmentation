@@ -19,6 +19,7 @@ uv run python scripts/plot_synthetic.py               # generate interactive plo
 uv run python scripts/run_real.py quick               # real data: 3 tickers, monthly, minimal augmenters
 uv run python scripts/run_real.py monthly             # real data: 10 tickers, monthly, all augmenters
 uv run python scripts/run_real.py full                # real data: 10 tickers, daily, all augmenters
+uv run python scripts/run_real.py ablation            # 2×2 factorial: regime features × corr quantum
 ```
 
 ## Architecture

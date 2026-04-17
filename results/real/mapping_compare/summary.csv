@@ -1,0 +1,5 @@
+augmenter_name,model_name,mse,mae,pearson_r,n_predictions,n_eval_dates,n_tickers,n_features_total,n_features_augmented,n_trainable_params,n_random_params,circuit_depth,qubit_count,gate_count,n_corr_quantum_features
+qunified_modular,ridge,0.001539,0.029655,0.44913,54,18,3,50,24,0,288,29.0,8.0,57.0,9
+qunified_pca,ridge,0.001578,0.030073,0.423052,54,18,3,50,24,0,288,29.0,8.0,57.0,9
+identity,ridge,0.001625,0.030518,0.38936,54,18,3,26,0,0,0,,,,9
+qunified_cyclic,ridge,0.001679,0.030536,0.351407,54,18,3,50,24,0,288,32.0,8.0,60.0,9

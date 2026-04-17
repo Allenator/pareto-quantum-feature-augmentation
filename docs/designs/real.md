@@ -240,7 +240,21 @@ Per the challenge spec (Sections 14-15):
 ## Running
 
 ```bash
-uv run python scripts/run_real.py quick    # 3 tickers, monthly eval, identity + poly + 1 unified
-uv run python scripts/run_real.py monthly  # 10 tickers, monthly eval, all 18 augmenters
-uv run python scripts/run_real.py full     # 10 tickers, daily eval, all 18 augmenters
+uv run python scripts/run_real.py quick     # 3 tickers, monthly eval, identity + poly + 1 unified
+uv run python scripts/run_real.py monthly   # 10 tickers, monthly eval, all 18 augmenters
+uv run python scripts/run_real.py full      # 10 tickers, daily eval, all 18 augmenters
+uv run python scripts/run_real.py ablation  # 2×2 factorial: regime × corr quantum (3 tickers, monthly)
 ```
+
+### Correlation Ablation
+
+The `ablation` mode runs a 2×2 factorial study to isolate the contributions of regime features (Approach 1) and quantum correlation encoding (Approach 3). It runs 4 configurations with `identity` and `qunified_z_8q` on 3 tickers at monthly steps:
+
+| Run ID | Regime (3 features) | Corr quantum (24 features) | Per-stock features |
+|--------|--------------------|-----------------------------|-------------------|
+| `ablation_noregime_nocorr` | No | No | 14 |
+| `ablation_noregime_corr` | No | Yes | 14 + 24 corr |
+| `ablation_regime_nocorr` | Yes | No | 17 |
+| `ablation_regime_corr` | Yes | Yes | 17 + 24 corr |
+
+Controlled by `use_regime_features` and `corr_augmenter` in `ExperimentConfig`. Results are saved to `results/real/ablation_*/`.

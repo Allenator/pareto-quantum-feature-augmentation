@@ -32,6 +32,8 @@ class UnifiedReservoirAugmenter:
         - "direct": 1:1 mapping, n_qubits must equal n_features
         - "modular": average features into n_qubits bins (modular assignment)
         - "pca": PCA reduction to n_qubits dimensions (requires fit())
+        - "cyclic": re-upload different feature slices at each layer — no information
+          loss, uses circuit depth to accommodate all features
     """
 
     def __init__(self, n_features: int, n_qubits: int | None = None,
@@ -84,6 +86,14 @@ class UnifiedReservoirAugmenter:
             for i in range(n_features):
                 self._bin_indices[i % self.n_qubits].append(i)
 
+        # Cyclic mapping: precompute per-layer feature slices
+        if qubit_mapping == "cyclic":
+            self._cyclic_slices = []
+            for layer in range(n_layers + 1):  # +1 for initial encoding
+                start = (layer * self.n_qubits) % n_features
+                indices = [(start + j) % n_features for j in range(self.n_qubits)]
+                self._cyclic_slices.append(indices)
+
         self._circuits = []
         self._all_weights = []
         self._specs_cache = None
@@ -128,8 +138,12 @@ class UnifiedReservoirAugmenter:
         observables = self.observables
         random_rot = self.random_rot
         n_layers = self.n_layers
+        is_cyclic = self.qubit_mapping == "cyclic"
         pairs = _get_pairs(connectivity, n_q)
         meas_wires = list(range(n_q))
+
+        # For cyclic: capture the per-layer feature index slices
+        cyclic_slices = self._cyclic_slices if is_cyclic else None
 
         for ens_idx in range(self.n_ensemble):
             weights = None
@@ -140,28 +154,40 @@ class UnifiedReservoirAugmenter:
 
             dev = qml.device("lightning.qubit", wires=n_q)
             w = weights  # capture for closure
+            _slices = cyclic_slices  # capture for closure
 
-            @qml.qnode(dev)
-            def circuit(x, _w=w):
-                # Encoding — x shape: (n_qubits,) or (n_samples, n_qubits)
+            def _encode(x, feat_indices=None):
+                """Encode features into qubits. For cyclic, x is the full feature
+                vector and feat_indices selects which features to encode."""
+                if feat_indices is not None:
+                    # Cyclic: select features for this layer
+                    x_slice = x[..., feat_indices]
+                else:
+                    x_slice = x
+
                 if encoding == "angle":
-                    qml.AngleEmbedding(x, wires=range(n_q), rotation="Y")
+                    qml.AngleEmbedding(x_slice, wires=range(n_q), rotation="Y")
                 elif encoding == "RZ":
                     for i in range(n_q):
                         qml.Hadamard(wires=i)
-                        qml.RZ(x[..., i], wires=i)
+                        qml.RZ(x_slice[..., i], wires=i)
                         qml.Hadamard(wires=i)
                 elif encoding == "IQP":
                     for i in range(n_q):
                         qml.Hadamard(wires=i)
-                        qml.RZ(x[..., i], wires=i)
+                        qml.RZ(x_slice[..., i], wires=i)
                     data_pairs = [(i, j) for i, j in pairs if i < n_q and j < n_q]
                     for i, j in data_pairs:
-                        qml.MultiRZ(x[..., i] * x[..., j], wires=[i, j])
+                        qml.MultiRZ(x_slice[..., i] * x_slice[..., j], wires=[i, j])
                     for i in range(n_q):
                         qml.Hadamard(wires=i)
 
-                # Mixing layers
+            @qml.qnode(dev)
+            def circuit(x, _w=w, _sl=_slices):
+                # Initial encoding
+                _encode(x, feat_indices=_sl[0] if _sl else None)
+
+                # Mixing layers with optional re-encoding
                 for layer in range(n_layers):
                     if random_rot and _w is not None:
                         for i in range(n_q):
@@ -170,6 +196,9 @@ class UnifiedReservoirAugmenter:
                     if cnot_mixing:
                         for i, j in pairs:
                             qml.CNOT(wires=[i, j])
+                    # Cyclic re-upload: encode next feature slice after mixing
+                    if _sl is not None:
+                        _encode(x, feat_indices=_sl[layer + 1])
 
                 # Final Rot before measurement
                 if random_rot and _w is not None:
@@ -202,16 +231,20 @@ class UnifiedReservoirAugmenter:
     def transform(self, X: np.ndarray) -> AugmenterResult:
         t0 = time.perf_counter()
 
-        # Map features to qubit dimension
-        X_mapped = self._map_features(X)  # (n_samples, n_qubits)
+        # For cyclic mapping, pass raw features — the circuit slices internally.
+        # For all other mappings, pre-map to n_qubits dimensions.
+        if self.qubit_mapping == "cyclic":
+            X_circuit = X  # (n_samples, n_features)
+        else:
+            X_circuit = self._map_features(X)  # (n_samples, n_qubits)
 
-        specs = self._get_specs(X_mapped[0])
+        specs = self._get_specs(X_circuit[0])
         is_prob = self.observables == "prob"
 
         all_features = []
         for circuit in self._circuits:
             # Parameter broadcasting: pass full batch at once
-            result = circuit(X_mapped)
+            result = circuit(X_circuit)
             if is_prob:
                 # probs returns (n_samples, 2^n_qubits) directly
                 all_features.append(np.array(result[0]))

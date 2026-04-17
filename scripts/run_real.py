@@ -1,6 +1,7 @@
 """Run the real financial data walk-forward backtest experiment."""
 
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -96,25 +97,42 @@ QUANTUM = QUANTUM_UNIFIED  # qres excluded — slow per-sample loop at 14 qubits
 
 MODELS = [ModelConfig("ridge")]
 
-SEEDS_PLACEHOLDER = [42]  # Real data doesn't need seed variation (data is fixed)
+SEEDS = [42, 123, 456, 789, 1024]
+
+
+def _with_seed(augmenters: list, seed: int) -> list:
+    """Return a copy of augmenter configs with the given seed injected."""
+    out = []
+    for cfg in augmenters:
+        if cfg.params and ("seed" in cfg.params or cfg.kind == "quantum_fixed"):
+            params = {**cfg.params, "seed": seed}
+            out.append(AugmenterConfig(cfg.name, cfg.kind, params))
+        elif cfg.kind == "classical" and cfg.params and "n_components" in cfg.params:
+            # RFF augmenters: use seed as random_state
+            params = {**cfg.params, "random_state": seed}
+            out.append(AugmenterConfig(cfg.name, cfg.kind, params))
+        else:
+            out.append(cfg)
+    return out
 
 
 def run_quick():
-    """Quick test: 3 tickers, monthly eval steps, minimal augmenters."""
+    """Quick test: 3 tickers, monthly eval steps, minimal augmenters, 1 seed."""
+    quick_augs = [
+        AugmenterConfig("identity", "classical"),
+        AugmenterConfig("poly_deg2", "classical"),
+        AugmenterConfig("qunified_z_8q_3L_3ens", "quantum_fixed",
+            {**_UNIFIED_BASE, "n_qubits": 8, "observables": "Z",
+             "n_layers": 3, "n_ensemble": 3}),
+    ]
     config = ExperimentConfig(
         data=RealDataConfig(
             tickers=("AAPL", "MSFT", "NVDA"),
             start_date="2022-01-01",
             end_date="2025-12-31",
         ),
-        backtest=BacktestConfig(step_days=21),  # monthly
-        augmenters=[
-            AugmenterConfig("identity", "classical"),
-            AugmenterConfig("poly_deg2", "classical"),
-            AugmenterConfig("qunified_z_8q_3L_3ens", "quantum_fixed",
-                {**_UNIFIED_BASE, "n_qubits": 8, "observables": "Z",
-                 "n_layers": 3, "n_ensemble": 3}),
-        ],
+        backtest=BacktestConfig(step_days=21),
+        augmenters=quick_augs,
         models=[ModelConfig("ridge")],
         run_id="quick",
         corr_augmenter=_corr_quantum(3),
@@ -123,80 +141,115 @@ def run_quick():
     return runner.run()
 
 
-def run_monthly():
-    """All augmenters, 10 tickers, monthly eval steps."""
+def _run_single_seed(args):
+    """Run a single seed's backtest. Top-level function for pickling."""
+    seed, step_days, run_prefix = args
+    corr_cfg = _corr_quantum(10)
+    corr_cfg["seed"] = seed
     config = ExperimentConfig(
         data=RealDataConfig(),
-        backtest=BacktestConfig(step_days=21),  # monthly
-        augmenters=CLASSICAL + QUANTUM,
+        backtest=BacktestConfig(step_days=step_days),
+        augmenters=_with_seed(CLASSICAL + QUANTUM, seed),
         models=MODELS,
-        run_id="monthly",
-        corr_augmenter=_corr_quantum(10),
+        run_id=f"{run_prefix}_s{seed}",
+        corr_augmenter=corr_cfg,
     )
     runner = BacktestRunner(config)
     return runner.run()
+
+
+def _run_seeds_parallel(step_days, run_prefix):
+    """Run all seeds in parallel processes."""
+    args = [(seed, step_days, run_prefix) for seed in SEEDS]
+    with ProcessPoolExecutor(max_workers=len(SEEDS)) as pool:
+        list(pool.map(_run_single_seed, args))
+
+
+def run_monthly():
+    """All augmenters, 10 tickers, monthly eval steps, 5 seeds in parallel."""
+    _run_seeds_parallel(step_days=21, run_prefix="monthly")
 
 
 def run_full():
-    """Full experiment: 10 tickers, daily eval, all augmenters."""
-    config = ExperimentConfig(
-        data=RealDataConfig(),
-        backtest=BacktestConfig(),
-        augmenters=CLASSICAL + QUANTUM,
-        models=MODELS,
-        run_id="full",
-        corr_augmenter=_corr_quantum(10),
+    """Full experiment: 10 tickers, daily eval, all augmenters, 5 seeds in parallel."""
+    _run_seeds_parallel(step_days=1, run_prefix="full")
+
+
+def _ablation_config(n_tickers, step_days, prefix, use_regime, use_corr, seed):
+    """Build ExperimentConfig for ablation study."""
+    tickers = ("AAPL", "MSFT", "NVDA") if n_tickers == 3 else RealDataConfig().tickers
+    tag = ("regime" if use_regime else "noregime") + ("_corr" if use_corr else "_nocorr")
+    n_feat = 17 if use_regime else 14
+    base = dict(n_features=n_feat, encoding="angle", connectivity="circular",
+                cnot_mixing=True, random_rot=True)
+    augs = [
+        AugmenterConfig("identity", "classical"),
+        AugmenterConfig("qunified_z_8q_3L_3ens", "quantum_fixed",
+            {**base, "n_qubits": 8, "observables": "Z", "n_layers": 3, "n_ensemble": 3}),
+    ]
+    corr_cfg = None
+    if use_corr:
+        corr_cfg = _corr_quantum(n_tickers)
+        corr_cfg["seed"] = seed
+    return ExperimentConfig(
+        data=RealDataConfig(tickers=tickers),
+        backtest=BacktestConfig(step_days=step_days),
+        augmenters=_with_seed(augs, seed),
+        models=[ModelConfig("ridge")],
+        run_id=f"{prefix}_{tag}_s{seed}",
+        use_regime_features=use_regime,
+        corr_augmenter=corr_cfg,
     )
+
+
+def _run_single_ablation(args):
+    """Run a single ablation config. Top-level function for pickling."""
+    n_tickers, step_days, prefix, use_regime, use_corr, seed = args
+    config = _ablation_config(n_tickers, step_days, prefix, use_regime, use_corr, seed)
     runner = BacktestRunner(config)
     return runner.run()
 
 
-def _ablation_config(n_tickers, use_regime, use_corr):
-    """Build ExperimentConfig for ablation study."""
-    tickers = ("AAPL", "MSFT", "NVDA") if n_tickers == 3 else RealDataConfig().tickers
-    tag = ("regime" if use_regime else "noregime") + ("_corr" if use_corr else "_nocorr")
-    # n_features must match: 17 with regime, 14 without
-    n_feat = 17 if use_regime else 14
-    base = dict(n_features=n_feat, encoding="angle", connectivity="circular",
-                cnot_mixing=True, random_rot=True)
-    return ExperimentConfig(
-        data=RealDataConfig(tickers=tickers),
-        backtest=BacktestConfig(step_days=21),
-        augmenters=[
-            AugmenterConfig("identity", "classical"),
-            AugmenterConfig("qunified_z_8q_3L_3ens", "quantum_fixed",
-                {**base, "n_qubits": 8, "observables": "Z", "n_layers": 3, "n_ensemble": 3}),
-        ],
-        models=[ModelConfig("ridge")],
-        run_id=f"ablation_{tag}",
-        use_regime_features=use_regime,
-        corr_augmenter=_corr_quantum(n_tickers) if use_corr else None,
-    )
+def _run_ablation_grid(n_tickers, step_days, prefix):
+    """Run 2×2 ablation × 5 seeds in parallel."""
+    args = [
+        (n_tickers, step_days, prefix, use_regime, use_corr, seed)
+        for seed in SEEDS
+        for use_regime in [False, True]
+        for use_corr in [False, True]
+    ]
+    with ProcessPoolExecutor(max_workers=len(SEEDS)) as pool:
+        list(pool.map(_run_single_ablation, args))
 
 
 def run_ablation():
-    """2x2 ablation: regime features × correlation quantum encoding."""
-    for use_regime in [False, True]:
-        for use_corr in [False, True]:
-            config = _ablation_config(3, use_regime, use_corr)
-            print(f"\n{'='*60}")
-            print(f"Ablation: regime={use_regime}, corr_quantum={use_corr}")
-            print(f"{'='*60}")
-            runner = BacktestRunner(config)
-            runner.run()
+    """2×2 ablation × 5 seeds: 3 tickers, monthly (quick diagnostic)."""
+    _run_ablation_grid(n_tickers=3, step_days=21, prefix="ablation")
+
+
+def run_ablation_monthly():
+    """2×2 ablation × 5 seeds: 10 tickers, monthly eval."""
+    _run_ablation_grid(n_tickers=10, step_days=21, prefix="ablation_monthly")
+
+
+def run_ablation_full():
+    """2×2 ablation × 5 seeds: 10 tickers, daily eval."""
+    _run_ablation_grid(n_tickers=10, step_days=1, prefix="ablation_full")
 
 
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "quick"
 
-    if mode == "quick":
-        run_quick()
-    elif mode == "monthly":
-        run_monthly()
-    elif mode == "full":
-        run_full()
-    elif mode == "ablation":
-        run_ablation()
+    modes = {
+        "quick": run_quick,
+        "monthly": run_monthly,
+        "full": run_full,
+        "ablation": run_ablation,
+        "ablation-monthly": run_ablation_monthly,
+        "ablation-full": run_ablation_full,
+    }
+    if mode in modes:
+        modes[mode]()
     else:
-        print(f"Usage: python scripts/run_real.py [quick|monthly|full|ablation]")
+        print(f"Usage: python scripts/run_real.py [{' | '.join(modes)}]")
         sys.exit(1)
