@@ -221,50 +221,69 @@ uv run python scripts/noise_injection.py           # Analysis 3 — match sigma*
 ## Project Structure
 
 ```
-src/synthetic/             # Modular experiment framework (Part I)
-  augmenters/
-    quantum_unified.py     # Unified 7-dimension quantum augmenter
-    quantum_fixed.py       # Legacy quantum augmenters (angle, ZZ, IQP, reservoir, QAOA)
-    classical.py           # Polynomial, RFF, oracle, log/abs
-    neural.py              # MLP, autoencoder, learned RFF (trainable)
-  models/linear.py         # OLS, RidgeCV, LassoCV, ElasticNetCV
-  evaluation/              # Metrics, complexity analysis, fairness checking
-  runner.py                # Multiprocessing orchestrator
-  config.py                # Frozen dataclasses
-  dgp.py                   # Synthetic regime-switching DGP
-
-src/real/                  # Real data pipeline (Part II)
-  config.py                # RealDataConfig, BacktestConfig, ExperimentConfig
-  data.py                  # DataBento OHLCV, feature engineering, cross-asset features
-  backtest.py              # Walk-forward backtesting with cached augmentation
-  quantum_unified_real.py  # Generalized quantum reservoir (variable input dimension)
+src/
+  synthetic/                       # Modular experiment framework (Part I)
+    augmenters/
+      quantum_unified.py           # Unified 7-dimension quantum augmenter
+      quantum_fixed.py             # Legacy quantum augmenters (angle, ZZ, IQP, reservoir, QAOA)
+      classical.py                 # Polynomial, RFF, oracle, log/abs
+      neural.py                    # MLP, autoencoder, learned RFF (trainable)
+    models/linear.py               # OLS, RidgeCV, LassoCV, ElasticNetCV
+    evaluation/                    # Metrics, complexity analysis, fairness checking
+    runner.py                      # Multiprocessing orchestrator
+    config.py                      # Frozen dataclasses
+    dgp.py                         # Synthetic regime-switching DGP
+  real/                            # Real data pipeline (Part II)
+    config.py                      # RealDataConfig, BacktestConfig, ExperimentConfig
+    data.py                        # DataBento OHLCV, feature engineering, cross-asset features
+    backtest.py                    # Walk-forward backtesting with cached augmentation
+    quantum_unified_real.py        # Generalized quantum reservoir (variable input dimension)
 
 scripts/
-  run_synthetic.py         # Synthetic experiment entry point
-  run_real.py              # Real data entry point (quick/monthly/full/ablation)
-  run_synthetic_hw.py      # Hardware experiment entry point (AWS Braket, PennyLane path)
-  run_synthetic_hw_packed.py      # Native-Braket packed 20×4q reservoirs (Part III)
-  run_synthetic_hw_singleton.py   # pack_factor=1 runbook for clean crosstalk test
-  plot_pareto_vs_classical.py  # Synthetic Pareto plots
-  plot_real_pareto.py      # Real data Pareto plots (5-seed aggregated)
-  plot_real_ablation.py    # Correlation ablation grouped bar plots
-  plot_synthetic_hw.py     # Hardware vs simulator MSE plots
-  plot_feature_fidelity.py # Per-measurement fidelity and error histograms
-  fit_noise_model.py       # Analysis 1 — (λ, σ_g) per source
-  mitigation_study.py      # Analysis 2 — 10 mitigation strategies
-  noise_injection.py       # Analysis 3 — matched Gaussian σ*
-  compare_features.py      # Summary CSV + pairwise feature comparison helper
-  quantum_reservoir.py     # Standalone quantum reservoir (library + CLI)
+  # Experiment runners
+  run_synthetic.py                 # Synthetic experiment entry point
+  run_real.py                      # Real data (quick/monthly/full/ablation/ablation-full)
+  run_synthetic_hw_packed.py       # Native-Braket packed 20×4q reservoirs on Ankaa-3
+  run_synthetic_hw_singleton.py    # Single 4q reservoir per task (crosstalk control)
+  run_synthetic_hw.py              # Hardware experiment (PennyLane path)
+  run_synthetic_local.py           # Local simulation runner
+  run_synthetic_tn1_packed.py      # TN1 tensor-network packed runner
+  # Plotting
+  plot_pareto_vs_classical.py      # Synthetic Pareto frontier plots
+  plot_unified.py                  # Synthetic factorial sweep plots
+  plot_synthetic.py                # Synthetic general plots
+  plot_real_pareto.py              # Real data Pareto + bar plots (5-seed aggregated)
+  plot_real_ablation.py            # Correlation ablation grouped bar + delta plots
+  plot_real.py                     # Real data general plots (single-run)
+  plot_synthetic_hw.py             # Hardware vs simulator MSE plots
+  plot_feature_fidelity.py         # Per-measurement fidelity and error histograms
+  # Analysis (Part III)
+  fit_noise_model.py               # (λ, σ_g) per source
+  mitigation_study.py              # 10 mitigation strategies
+  noise_injection.py               # Matched Gaussian σ*
+  compare_features.py              # Summary CSV + pairwise feature comparison
+  quantum_reservoir.py             # Standalone quantum reservoir (library + CLI)
 
-data/                      # Cached datasets (git LFS)
-  synthetic/               # Synthetic DGP parquets (10k/10k canonical + small sizes for Part III)
-results/                   # Experiment results (JSON + CSV + parquet)
-  synthetic_hw/            # Hardware-validation CSVs (summary, noise model, mitigation, noise injection)
-plots/                     # Generated figures (HTML + PNG, git LFS)
-  synthetic_hw/            # Hardware-validation plots (fidelity, noise model, mitigation, injection)
-features/                  # Saved augmented feature matrices (git LFS)
-  synthetic_hw/            # Per-run `.npz` for exact / SV1 / Rigetti packed / singleton
-docs/                      # Design, results, presentation, changelog
+data/                              # Cached datasets (git LFS)
+  synthetic/                       # Synthetic DGP parquets (10k/10k)
+  synthetic_2k/                    # Small synthetic datasets (2k, for Part III)
+  real/                            # DataBento OHLCV + feature caches
+results/
+  synthetic/                       # Per-seed JSON + summary.csv
+  real/                            # Per-(augmenter, model) JSON + predictions parquet + summary.csv
+  synthetic_hw/                    # Hardware-validation CSVs
+plots/                             # Generated figures (HTML + PNG, git LFS)
+  synthetic/                       # Synthetic experiment plots
+  real/                            # Real data Pareto, bar, ablation plots
+  synthetic_hw/                    # Hardware-validation plots
+  illustrations/                   # Architecture diagrams and explanatory figures
+features/                          # Saved augmented feature matrices (git LFS)
+  synthetic_hw/                    # Per-run .npz for exact / SV1 / Rigetti
+docs/                              # Design documents, results, presentation materials
+  designs/                         # Architecture and methodology docs
+  results/                         # Numerical results and analysis
+  specs/                           # Challenge specification
+  presentation/                    # Slide decks and speaking notes
 ```
 
 ## Documentation
