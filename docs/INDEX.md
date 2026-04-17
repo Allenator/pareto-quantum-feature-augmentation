@@ -13,7 +13,7 @@ All documentation in `docs/` is listed here. Update this index whenever document
 - [Preprocessing Pipeline](designs/preprocessing.md) — Data generation, standardization, clipping, and fairness controls
 - [Classical Baselines](designs/classical_baselines.md) — Classical feature augmentation methods: polynomial, log/abs, RFF, oracle, and comparison table
 - [Quantum Reservoir](designs/quantum_reservoir.md) — Optimal quantum feature augmentation strategy: circuit structure, design justification, usage, and integration
-- [Real Financial Data Design](designs/real.md) — Walk-forward backtesting, feature construction, and dimensionality strategy for S&P 500 excess return prediction
+- [Real Financial Data Design](designs/real.md) — DataBento pipeline, walk-forward backtesting with cached augmentation, unified quantum augmenter, cross-asset extensions, and S&P 500 excess return prediction
 
 ## Results
 

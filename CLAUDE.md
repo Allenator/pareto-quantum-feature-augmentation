@@ -16,6 +16,9 @@ uv run python scripts/run_synthetic.py static         # full static augmenter sw
 uv run python scripts/run_synthetic.py classical      # classical baselines only
 uv run python scripts/run_synthetic.py trainable      # trainable augmenter sweep
 uv run python scripts/plot_synthetic.py               # generate interactive plots
+uv run python scripts/run_real.py quick               # real data: 3 tickers, monthly, minimal augmenters
+uv run python scripts/run_real.py monthly             # real data: 10 tickers, monthly, all augmenters
+uv run python scripts/run_real.py full                # real data: 10 tickers, daily, all augmenters
 ```
 
 ## Architecture
@@ -27,10 +30,17 @@ uv run python scripts/plot_synthetic.py               # generate interactive plo
   - `models/` — regression model wrappers (OLS, RidgeCV, LassoCV, ElasticNetCV). Report `coef_l2_norm` and `lasso_active_fraction`.
   - `evaluation/` — metrics (`metrics.py`), complexity metrics (`complexity.py`: effective rank, nonlinearity score, feature-target alignment), fairness checking and result aggregation (`comparison.py`)
   - `runner.py` — `ExperimentRunner` orchestrator with multiprocessing, tqdm progress, skip-if-exists caching, and feature matrix saving
-- **`scripts/`** — Entry points. `run_synthetic.py` configures and runs experiments. `plot_synthetic.py` generates interactive Plotly HTML plots.
+- **`src/real/`** — Real S&P 500 excess return prediction pipeline:
+  - `config.py` — `RealDataConfig` (tickers, DataBento dataset), `BacktestConfig` (window sizes in trading days), `ExperimentConfig`
+  - `data.py` — DataBento OHLCV download, split adjustment, 14 stock-minus-market features, caching
+  - `backtest.py` — `BacktestRunner` with walk-forward backtesting, monthly scaler caching, parallel quantum augmentation
+  - `quantum_unified_real.py` — `UnifiedReservoirAugmenter`: generalized quantum reservoir for variable input dimension with modular/PCA/direct feature-to-qubit mapping
+- **`scripts/`** — Entry points. `run_synthetic.py` and `run_real.py` configure and run experiments. `plot_synthetic.py` and `plot_real.py` generate interactive plots.
 - **`data/synthetic/`** — Generated parquet datasets, tracked via **git LFS**. Do not regenerate unless the DGP changes.
+- **`data/real/`** — Cached DataBento OHLCV parquet files, tracked via **git LFS**. Regenerated on first run or config change.
 - **`features/synthetic/`** — Saved augmented feature matrices (NPZ), tracked via **git LFS**. Regenerated with results.
 - **`results/synthetic/`** — Per-seed JSON results + `summary.csv`, scoped by `run_id`.
+- **`results/real/`** — Per-(augmenter, model) JSON results, prediction parquets (LFS), and `summary.csv`, scoped by `run_id`.
 - **`plots/synthetic/`** — Interactive HTML plots (Plotly).
 - **`exploration/`** — Legacy exploration scripts from the reference notebook. Numbered `e00`–`e06`.
 - **`docs/`** — Project documentation. **All docs must be indexed in `docs/INDEX.md`**. Update the index each time there is a meaningful change in documentation.
@@ -56,4 +66,6 @@ uv run python scripts/plot_synthetic.py               # generate interactive plo
 
 ## Dependencies
 
-Managed via `uv` and `pyproject.toml` with a local `.venv`. Key packages: `pennylane`, `amazon-braket-sdk`, `amazon-braket-pennylane-plugin`, `scikit-learn`, `torch`, `yfinance`, `numpy`, `pandas`, `matplotlib`, `seaborn`, `scipy`, `pyarrow`, `plotly`, `tqdm`.
+Managed via `uv` and `pyproject.toml` with a local `.venv`. Key packages: `pennylane`, `amazon-braket-sdk`, `amazon-braket-pennylane-plugin`, `databento`, `scikit-learn`, `torch`, `numpy`, `pandas`, `matplotlib`, `seaborn`, `scipy`, `pyarrow`, `plotly`, `tqdm`.
+
+DataBento API key stored in `.env.databento` (gitignored). Real data pipeline reads it automatically.
