@@ -16,10 +16,12 @@ uv run python scripts/run_synthetic.py static         # full static augmenter sw
 uv run python scripts/run_synthetic.py classical      # classical baselines only
 uv run python scripts/run_synthetic.py trainable      # trainable augmenter sweep
 uv run python scripts/plot_synthetic.py               # generate interactive plots
-uv run python scripts/run_real.py quick               # real data: 3 tickers, monthly, minimal augmenters
-uv run python scripts/run_real.py monthly             # real data: 10 tickers, monthly, all augmenters
-uv run python scripts/run_real.py full                # real data: 10 tickers, daily, all augmenters
-uv run python scripts/run_real.py ablation            # 2×2 factorial: regime features × corr quantum
+uv run python scripts/run_real.py quick               # real data: 3 tickers, monthly, 1 seed
+uv run python scripts/run_real.py monthly             # real data: 10 tickers, monthly, 5 seeds parallel
+uv run python scripts/run_real.py full                # real data: 10 tickers, daily, 5 seeds parallel
+uv run python scripts/run_real.py ablation            # 2×2 ablation: 3 tickers, monthly, 5 seeds
+uv run python scripts/run_real.py ablation-monthly    # 2×2 ablation: 10 tickers, monthly, 5 seeds
+uv run python scripts/run_real.py ablation-full       # 2×2 ablation: 10 tickers, daily, 5 seeds
 ```
 
 ## Architecture
@@ -33,10 +35,14 @@ uv run python scripts/run_real.py ablation            # 2×2 factorial: regime f
   - `runner.py` — `ExperimentRunner` orchestrator with multiprocessing, tqdm progress, skip-if-exists caching, and feature matrix saving
 - **`src/real/`** — Real S&P 500 excess return prediction pipeline:
   - `config.py` — `RealDataConfig` (tickers, DataBento dataset), `BacktestConfig` (window sizes in trading days), `ExperimentConfig`
-  - `data.py` — DataBento OHLCV download, split adjustment, 14 stock-minus-market features, caching
-  - `backtest.py` — `BacktestRunner` with walk-forward backtesting, monthly scaler caching, parallel quantum augmentation
-  - `quantum_unified_real.py` — `UnifiedReservoirAugmenter`: generalized quantum reservoir for variable input dimension with modular/PCA/direct feature-to-qubit mapping
-- **`scripts/`** — Entry points. `run_synthetic.py` and `run_real.py` configure and run experiments. `plot_synthetic.py` and `plot_real.py` generate interactive plots.
+  - `data.py` — DataBento OHLCV download, split adjustment, 14 stock-minus-market features + 3 cross-asset regime features + correlation triangle, caching
+  - `backtest.py` — `BacktestRunner` with walk-forward backtesting, monthly scaler caching, parallel quantum augmentation, dual-channel correlation quantum encoding
+  - `quantum_unified_real.py` — `UnifiedReservoirAugmenter`: generalized quantum reservoir for variable input dimension with modular/PCA/direct/cyclic feature-to-qubit mapping
+- **`scripts/`** — Entry points and plotting:
+  - `run_synthetic.py`, `run_real.py` — experiment runners
+  - `plot_pareto_vs_classical.py` — synthetic Pareto frontier plots
+  - `plot_real_pareto.py` — real data 5-seed aggregated Pareto + bar plots
+  - `plot_real_ablation.py` — correlation ablation grouped bar + delta plots
 - **`data/synthetic/`** — Generated parquet datasets, tracked via **git LFS**. Do not regenerate unless the DGP changes.
 - **`data/real/`** — Cached DataBento OHLCV parquet files, tracked via **git LFS**. Regenerated on first run or config change.
 - **`features/synthetic/`** — Saved augmented feature matrices (NPZ), tracked via **git LFS**. Regenerated with results.

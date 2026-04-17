@@ -73,7 +73,7 @@ At each evaluation date $t$:
 3. **Test**: all tickers on date $t$
 4. **Model refit**: Ridge/Lasso refit from scratch each window
 
-Training set size: 504 trading days $\times$ 10 tickers = ~5040 samples $\times$ 14 features per window.
+Training set size: 504 trading days $\times$ 10 tickers = ~5040 samples $\times$ 17 features per window.
 
 ### Cached Augmentation with Monthly Scaler Refit
 
@@ -152,26 +152,25 @@ Sweep `n_qubits` in $\{6, 8\}$ with observables in $\{Z, XYZ, Z{+}ZZ\}$ to study
 
 | Name | Method |
 |------|--------|
-| `identity` | Raw 14 features |
+| `identity` | Raw 17 features (14 excess + 3 regime) |
 | `poly_deg2_interact` | Interaction terms only |
 | `poly_deg2` | Full degree-2 polynomial |
 | `interaction_log` | Interactions + log/abs |
-| `rff_10` / `rff_30` | Random Fourier features |
+| `rff_10` / `rff_30` / `rff_50` / `rff_96` | Random Fourier features |
 
 ### Quantum (Unified Reservoir)
 
-All configs use the winning synthetic design: angle (RY) encoding, circular CNOT connectivity, random rotations. Modular feature-to-qubit mapping averages 14 input features into `n_qubits` bins. Implemented in `src/real/quantum_unified_real.py`.
+All configs use the winning synthetic design: angle (RY) encoding, circular CNOT connectivity, random rotations. Modular feature-to-qubit mapping averages 17 input features into `n_qubits` bins. Implemented in `src/real/quantum_unified_real.py`.
 
 | Name | Qubits | Observables | Total Features |
 |------|--------|-------------|----------------|
-| `qunified_z_6q_3L_3ens` | 6 | Z | 32 |
-| `qunified_z_8q_3L_3ens` | 8 | Z | 38 |
-| `qunified_z_10q_3L_3ens` | 10 | Z | 44 |
-| `qunified_xyz_6q_3L_3ens` | 6 | XYZ | 68 |
-| `qunified_xyz_8q_3L_3ens` | 8 | XYZ | 86 |
-| `qunified_zzz_6q_3L_3ens` | 6 | Z+ZZ | 77 |
-| `qunified_zzz_8q_3L_3ens` | 8 | Z+ZZ | 122 |
-| `qunified_z_8q_3L_3ens_pca` | 8 | Z | 38 (PCA mapping) |
+| `qunified_z_6q_3L_3ens` | 6 | Z | 35 |
+| `qunified_z_8q_3L_3ens` | 8 | Z | 41 |
+| `qunified_xyz_6q_3L_3ens` | 6 | XYZ | 71 |
+| `qunified_xyz_8q_3L_3ens` | 8 | XYZ | 89 |
+| `qunified_zzz_6q_3L_3ens` | 6 | Z+ZZ | 80 |
+| `qunified_zzz_8q_3L_3ens` | 8 | Z+ZZ | 125 |
+| `qunified_z_8q_3L_3ens_pca` | 8 | Z | 41 (PCA mapping) |
 
 Ablations: depth (2L, 5L), connectivity (linear).
 
@@ -240,10 +239,14 @@ Per the challenge spec (Sections 14-15):
 ## Running
 
 ```bash
-uv run python scripts/run_real.py quick     # 3 tickers, monthly eval, identity + poly + 1 unified
-uv run python scripts/run_real.py monthly   # 10 tickers, monthly eval, all 18 augmenters
-uv run python scripts/run_real.py full      # 10 tickers, daily eval, all 18 augmenters
-uv run python scripts/run_real.py ablation  # 2×2 factorial: regime × corr quantum (3 tickers, monthly)
+uv run python scripts/run_real.py quick            # 3 tickers, monthly eval, 1 seed
+uv run python scripts/run_real.py monthly          # 10 tickers, monthly eval, 5 seeds parallel
+uv run python scripts/run_real.py full             # 10 tickers, daily eval, 5 seeds parallel
+uv run python scripts/run_real.py ablation         # 2×2 factorial, 3 tickers, monthly, 5 seeds
+uv run python scripts/run_real.py ablation-monthly # 2×2 factorial, 10 tickers, monthly, 5 seeds
+uv run python scripts/run_real.py ablation-full    # 2×2 factorial, 10 tickers, daily, 5 seeds
+uv run python scripts/plot_real_pareto.py          # Pareto + bar plots (5-seed aggregated)
+uv run python scripts/plot_real_ablation.py        # Ablation grouped bar + delta plots
 ```
 
 ### Correlation Ablation
