@@ -195,9 +195,112 @@ def make_plot():
     fig.write_image(str(path.with_suffix(".png")), scale=3)
     print(f"Saved: {path} + .png")
 
+    # ── Per-regime comparison ──
+    make_regime_plot(df, quantum, rff, individual_classical, _CLASSICAL_STYLES, hover, corr_ceiling)
+
     # ── Overfitting diagnostic (separate plot) ──
     make_overfit_plot(df, quantum, rff, individual_classical, q_pareto_mse, _CLASSICAL_STYLES, hover)
     make_params_plot(df, quantum, rff, individual_classical, q_pareto_mse, q_pareto_corr, _CLASSICAL_STYLES, hover)
+
+
+def make_regime_plot(df, quantum, rff, individual_classical, styles, hover_fn, corr_ceiling):
+    """2x2: Regime 1 vs Regime 2, MSE vs Correlation."""
+
+    # Pareto frontiers per regime
+    q_pareto_r1_mse = _pareto_frontier(quantum, "mse_r1_mean", True)
+    q_pareto_r2_mse = _pareto_frontier(quantum, "mse_r2_mean", True)
+    q_pareto_r1_corr = _pareto_frontier(quantum, "corr_r1_mean", False)
+    q_pareto_r2_corr = _pareto_frontier(quantum, "corr_r2_mean", False)
+    for sub in [q_pareto_r1_mse, q_pareto_r2_mse, q_pareto_r1_corr, q_pareto_r2_corr]:
+        sub["hover"] = sub.apply(hover_fn, axis=1)
+
+    fig = make_subplots(rows=2, cols=2,
+                        subplot_titles=[
+                            "Regime 1 (Linear) — MSE", "Regime 1 (Linear) — Correlation",
+                            "Regime 2 (Nonlinear) — MSE", "Regime 2 (Nonlinear) — Correlation",
+                        ],
+                        horizontal_spacing=0.08, vertical_spacing=0.10)
+
+    panels = [
+        (1, 1, "mse_r1_mean", "mse_r1_std", q_pareto_r1_mse),
+        (1, 2, "corr_r1_mean", "corr_r1_std", q_pareto_r1_corr),
+        (2, 1, "mse_r2_mean", "mse_r2_std", q_pareto_r2_mse),
+        (2, 2, "corr_r2_mean", "corr_r2_std", q_pareto_r2_corr),
+    ]
+
+    for row, col, y_col, y_err_col, q_pareto in panels:
+        show_legend = (row == 1 and col == 1)
+
+        # Quantum Pareto
+        err = None
+        if y_err_col in q_pareto.columns and q_pareto[y_err_col].notna().any():
+            err = dict(type="data", array=q_pareto[y_err_col].fillna(0), visible=True, thickness=1.5, width=4)
+        fig.add_trace(go.Scatter(
+            x=q_pareto["n_features"], y=q_pareto[y_col],
+            error_y=err,
+            mode="lines+markers", name="Quantum Pareto",
+            marker=dict(size=9, color="#4C78A8", symbol="diamond"),
+            line=dict(color="#4C78A8", width=2.5),
+            hovertext=q_pareto["hover"], hoverinfo="text",
+            showlegend=show_legend,
+        ), row=row, col=col)
+
+        # RFF
+        rff_err = None
+        if y_err_col in rff.columns and rff[y_err_col].notna().any():
+            rff_err = dict(type="data", array=rff[y_err_col].fillna(0), visible=True, thickness=1, width=3)
+        fig.add_trace(go.Scatter(
+            x=rff["n_features"], y=rff[y_col],
+            error_y=rff_err,
+            mode="lines+markers", name="RFF",
+            marker=dict(size=7, color="#F58518", symbol="triangle-up"),
+            line=dict(color="#F58518", width=2),
+            hovertext=rff["hover"], hoverinfo="text",
+            showlegend=show_legend,
+        ), row=row, col=col)
+
+        # Classical points
+        for _, r in individual_classical.iterrows():
+            if y_col not in r.index or pd.isna(r[y_col]):
+                continue
+            sty = styles.get(r["augmenter_name"], dict(color="#72B7B2", symbol="circle"))
+            pt_err = None
+            if y_err_col in r.index and not pd.isna(r.get(y_err_col)):
+                pt_err = dict(type="data", array=[r[y_err_col]], visible=True, thickness=1.5, width=5)
+            fig.add_trace(go.Scatter(
+                x=[r["n_features"]], y=[r[y_col]],
+                error_y=pt_err,
+                mode="markers", name=r["augmenter_name"],
+                marker=dict(size=9, **sty),
+                hovertext=[r["hover"]], hoverinfo="text",
+                showlegend=show_legend,
+            ), row=row, col=col)
+
+    # Noise floor on MSE panels
+    fig.add_hline(y=1.0, line_dash="dash", line_color="#888888", line_width=1.5, opacity=0.6, row=1, col=1)
+    fig.add_hline(y=1.0, line_dash="dash", line_color="#888888", line_width=1.5, opacity=0.6, row=2, col=1)
+
+    for row in (1, 2):
+        for col in (1, 2):
+            fig.update_xaxes(title_text="# Features", type="log", row=row, col=col)
+
+    fig.update_yaxes(title_text="MSE (R1)", row=1, col=1)
+    fig.update_yaxes(title_text="Correlation (R1)", row=1, col=2)
+    fig.update_yaxes(title_text="MSE (R2)", row=2, col=1)
+    fig.update_yaxes(title_text="Correlation (R2)", row=2, col=2)
+
+    fig.update_layout(
+        title="Per-Regime Comparison: Regime 1 (Linear) vs Regime 2 (Nonlinear)",
+        height=900, width=1400,
+        template="plotly_white",
+        hovermode="closest",
+        legend=dict(orientation="h", yanchor="top", y=-0.08, xanchor="center", x=0.5),
+    )
+
+    path = FIGURES_DIR / "regime_comparison.html"
+    fig.write_html(str(path), include_plotlyjs=True)
+    fig.write_image(str(path.with_suffix(".png")), scale=3)
+    print(f"Saved: {path} + .png")
 
 
 def make_overfit_plot(df, quantum, rff, individual_classical, q_pareto_mse, styles, hover_fn):

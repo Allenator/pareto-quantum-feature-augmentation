@@ -1,12 +1,12 @@
-"""Data pipeline: Yahoo Finance download, caching, and feature engineering."""
+"""Data pipeline: DataBento download, caching, and feature engineering."""
 
 import hashlib
-import time
+import os
 from pathlib import Path
 
+import databento as db
 import numpy as np
 import pandas as pd
-import requests
 
 from src.real.config import RealDataConfig
 
@@ -22,51 +22,81 @@ FEATURE_COLS = [
 
 def _cache_key(config: RealDataConfig) -> str:
     """Build a short hash from config for cache filenames."""
-    key = f"{sorted(config.tickers)}_{config.market_ticker}_{config.start_date}_{config.end_date}"
+    key = (f"{sorted(config.tickers)}_{config.market_ticker}"
+           f"_{config.start_date}_{config.end_date}_{config.databento_dataset}")
     return hashlib.md5(key.encode()).hexdigest()[:10]
 
 
-def _download_single_ticker(ticker: str, start: str, end: str) -> pd.DataFrame:
-    """Download OHLCV for one ticker from Yahoo Finance chart API.
+def _get_client() -> db.Historical:
+    """Create a DataBento Historical client.
 
-    Returns DataFrame with columns: Open, High, Low, Close, Volume, indexed by Date.
-    Uses adjusted close prices.
+    Reads API key from DATABENTO_API_KEY env var, falling back to .env.databento.
     """
-    start_ts = int(pd.Timestamp(start).timestamp())
-    end_ts = int(pd.Timestamp(end).timestamp())
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
-    params = {
-        "period1": start_ts,
-        "period2": end_ts,
-        "interval": "1d",
-        "events": "history",
-    }
-    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
-    r = requests.get(url, params=params, headers=headers)
-    r.raise_for_status()
-    data = r.json()
+    api_key = os.environ.get("DATABENTO_API_KEY")
+    if not api_key:
+        env_path = Path(__file__).resolve().parent.parent.parent / ".env.databento"
+        if env_path.exists():
+            for line in env_path.read_text().strip().splitlines():
+                if line.startswith("DATABENTO_API_KEY="):
+                    api_key = line.split("=", 1)[1].strip()
+                    break
+    if not api_key:
+        raise RuntimeError(
+            "DATABENTO_API_KEY not found. Set it via environment variable "
+            "or in .env.databento at the project root."
+        )
+    return db.Historical(key=api_key)
 
-    result = data["chart"]["result"][0]
-    timestamps = result["timestamp"]
-    quote = result["indicators"]["quote"][0]
-    adj = result["indicators"]["adjclose"][0]["adjclose"]
 
-    df = pd.DataFrame(
-        {
-            "Open": quote["open"],
-            "High": quote["high"],
-            "Low": quote["low"],
-            "Close": adj,  # adjusted close
-            "Volume": quote["volume"],
-        },
-        index=pd.to_datetime(timestamps, unit="s").normalize(),
-    )
-    df.index.name = "Date"
-    return df.dropna()
+def _detect_and_adjust_splits(ohlcv_df: pd.DataFrame) -> pd.DataFrame:
+    """Detect stock splits from price discontinuities and adjust all OHLCV fields.
+
+    Detects overnight close-to-close drops > 40% (which cannot be real moves
+    for mega-cap stocks) and infers the split ratio. Adjusts all prior prices
+    down and volumes up by the ratio.
+    """
+    result = ohlcv_df.copy()
+
+    for symbol in result["symbol"].unique():
+        mask = result["symbol"] == symbol
+        sym = result.loc[mask].sort_index()
+        if len(sym) < 2:
+            continue
+
+        closes = sym["close"].values.copy()
+        dates = sym.index
+
+        # Scan for split-like discontinuities (reverse chronological not needed;
+        # forward scan and adjust cumulatively)
+        for i in range(1, len(closes)):
+            if closes[i - 1] == 0:
+                continue
+            ratio = closes[i] / closes[i - 1]
+            # Split: price drops by >40% overnight (ratio < 0.6)
+            # e.g., 20:1 split → ratio ≈ 0.05, 10:1 → ratio ≈ 0.10
+            if ratio < 0.6:
+                raw_ratio = 1.0 / ratio
+                # Snap to nearest common split ratio
+                common_ratios = [2, 3, 4, 5, 7, 8, 10, 15, 20, 25, 50, 100]
+                split_ratio = min(common_ratios, key=lambda r: abs(r - raw_ratio))
+                split_date = dates[i]
+                print(f"  Detected {symbol} {split_ratio}:1 split on {split_date.date()}")
+
+                # Adjust all prior rows for this symbol
+                prior_mask = mask & (result.index < split_date)
+                for col in ["open", "high", "low", "close"]:
+                    result.loc[prior_mask, col] /= split_ratio
+                result.loc[prior_mask, "volume"] = (
+                    result.loc[prior_mask, "volume"].astype(float) * split_ratio
+                )
+                # Update local closes array for subsequent split detection
+                closes[:i] = closes[:i] / split_ratio
+
+    return result
 
 
 def download_prices(config: RealDataConfig) -> pd.DataFrame:
-    """Download OHLCV data for all tickers + market. Cache as parquet.
+    """Download OHLCV data for all tickers + market from DataBento. Cache as parquet.
 
     Returns a DataFrame with MultiIndex columns (ticker, field) where field is
     one of: Open, High, Low, Close, Volume.
@@ -78,25 +108,53 @@ def download_prices(config: RealDataConfig) -> pd.DataFrame:
     if cache_path.exists():
         return pd.read_parquet(cache_path)
 
+    client = _get_client()
     all_tickers = list(config.tickers) + [config.market_ticker]
-    frames = {}
 
+    print(f"Downloading OHLCV from DataBento ({config.databento_dataset})...")
+    data = client.timeseries.get_range(
+        dataset=config.databento_dataset,
+        schema="ohlcv-1d",
+        symbols=all_tickers,
+        start=config.start_date,
+        end=config.end_date,
+        stype_in="raw_symbol",
+    )
+    raw_df = data.to_df()
+    print(f"  Downloaded {len(raw_df)} daily bars across {raw_df['symbol'].nunique()} symbols")
+
+    # Detect and adjust stock splits from price discontinuities
+    raw_df = _detect_and_adjust_splits(raw_df)
+
+    # Convert to MultiIndex (ticker, field) format matching downstream expectations
+    # DataBento columns: open, high, low, close, volume, symbol (lowercase)
+    # Expected: MultiIndex (ticker, field) with field in {Open, High, Low, Close, Volume}
+    frames = {}
     for ticker in all_tickers:
-        for attempt in range(3):
-            try:
-                single = _download_single_ticker(ticker, config.start_date, config.end_date)
-                if not single.empty:
-                    frames[ticker] = single
-                    print(f"  {ticker}: {len(single)} days")
-                    break
-            except Exception as e:
-                print(f"  Attempt {attempt+1}/3 for {ticker}: {e}")
-                time.sleep(2 ** attempt)
-        else:
-            print(f"  WARNING: Failed to download {ticker} after 3 attempts")
+        ticker_data = raw_df[raw_df["symbol"] == ticker].copy()
+        if ticker_data.empty:
+            print(f"  WARNING: No data for {ticker}")
+            continue
+
+        # Index by date (normalize to midnight)
+        ticker_data.index = ticker_data.index.normalize()
+        ticker_data = ticker_data[~ticker_data.index.duplicated(keep="first")]
+
+        frames[ticker] = pd.DataFrame(
+            {
+                "Open": ticker_data["open"].values,
+                "High": ticker_data["high"].values,
+                "Low": ticker_data["low"].values,
+                "Close": ticker_data["close"].values,
+                "Volume": ticker_data["volume"].values,
+            },
+            index=ticker_data.index,
+        )
+        frames[ticker].index.name = "Date"
+        print(f"  {ticker}: {len(frames[ticker])} days")
 
     if not frames:
-        raise RuntimeError("Failed to download any ticker data. Check network.")
+        raise RuntimeError("Failed to download any ticker data from DataBento.")
 
     # Build MultiIndex DataFrame: (ticker, field)
     df = pd.concat(frames, axis=1)

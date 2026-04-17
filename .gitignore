@@ -15,6 +15,9 @@ build/
 *.swo
 .DS_Store
 
+# Office temp files
+~$*
+
 # Jupyter
 .ipynb_checkpoints/
 
@@ -24,8 +27,9 @@ exploration/evaluation_comparison.png
 # Experiment outputs (regenerated on each run)
 features/
 
-# AWS credentials
+# Credentials
 .env.aws
+.env.databento
 
 # Examples
 AWS-Examples/

@@ -1,0 +1,17 @@
+{
+  "augmenter_name": "poly_deg2",
+  "model_name": "ridge",
+  "mse": 0.00195,
+  "mae": 0.03225,
+  "pearson_r": 0.24432,
+  "n_predictions": 54,
+  "n_eval_dates": 18,
+  "n_tickers": 3,
+  "n_features_total": 119,
+  "n_features_augmented": 105,
+  "n_trainable_params": 0,
+  "n_random_params": 0,
+  "circuit_depth": null,
+  "qubit_count": null,
+  "gate_count": null
+}

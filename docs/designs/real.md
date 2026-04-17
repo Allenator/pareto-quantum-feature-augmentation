@@ -16,9 +16,9 @@ where $R_{i,t \to t+5}^{close} = P_{i,t+5}^{close} / P_{i,t}^{close} - 1$. This 
 
 ## Stock Universe
 
-Top 10 S&P 500 constituents by market cap: AAPL, MSFT, NVDA, AMZN, GOOGL, META, BRK-B, LLY, JPM, AVGO.
+Top 10 S&P 500 constituents by market cap: AAPL, MSFT, NVDA, AMZN, GOOGL, META, BRK.B, LLY, JPM, AVGO.
 
-Data range: 2022-01-01 to 2025-12-31 (yfinance). With a 2-year training warmup, out-of-sample evaluation starts ~2024-01-01.
+Data range: 2022-01-01 to 2025-12-31 (DataBento `XNAS.ITCH` ohlcv-1d). Market proxy: SPY (ETF). Stock splits are detected from price discontinuities and adjusted automatically. With a 2-year training warmup (504 trading days), out-of-sample evaluation starts ~mid-2024.
 
 ## Feature Construction
 
@@ -92,15 +92,16 @@ All per-window out-of-sample predictions are collected into a single series, the
 
 ```
 src/real/
-  config.py           # RealDataConfig, BacktestConfig, ExperimentConfig
-  data.py             # yfinance download + cache, feature engineering, build_dataset
-  backtest.py         # BacktestRunner: walk-forward loop + metrics aggregation
+  config.py                  # RealDataConfig, BacktestConfig, ExperimentConfig
+  data.py                    # DataBento download + cache, feature engineering, build_dataset
+  backtest.py                # BacktestRunner: walk-forward loop + metrics aggregation
+  quantum_unified_real.py    # UnifiedReservoirAugmenter (generalized for variable n_features)
 scripts/
-  run_real.py          # Entry point (quick / full modes)
-  plot_real.py         # OOS correlation, rolling IC, MSE bar chart
-data/real/             # Cached price parquet
-results/real/          # JSON results + summary.csv
-features/real/         # Saved augmented feature matrices
+  run_real.py                # Entry point (quick / full modes)
+  plot_real.py               # OOS correlation, rolling IC, MSE bar chart
+data/real/                   # Cached price parquet (git LFS)
+results/real/                # JSON results + summary.csv
+features/real/               # Saved augmented feature matrices
 ```
 
 ### Reused from `src/synthetic/`
@@ -135,16 +136,73 @@ With 14 input features (vs. 4 in synthetic), quantum circuits need more qubits o
 | `interaction_log` | Interactions + log/abs |
 | `rff_10` / `rff_30` | Random Fourier features |
 
-### Quantum
+### Quantum (Unified Reservoir)
 
-| Name | Qubits | Observables | Notes |
-|------|--------|-------------|-------|
-| `reservoir_3x3_Z_4q` | 4 | Z | Baseline, 4-qubit mapping |
-| `reservoir_3x3_XYZ_4q` | 4 | XYZ | Multi-basis, 4-qubit |
-| `reservoir_3x3_XYZ_8q` | 8 | XYZ | Mid-range qubit count |
-| `reservoir_3x3_XYZ_14q` | 14 | XYZ | 1:1 feature-qubit mapping |
-| `angle_strong_8q_2L` | 8 | Z+ZZ | StronglyEntangling |
-| `angle_strong_14q_2L` | 14 | Z+ZZ | Full feature encoding |
+All configs use the winning synthetic design: angle (RY) encoding, circular CNOT connectivity, random rotations. Modular feature-to-qubit mapping averages 14 input features into `n_qubits` bins. Implemented in `src/real/quantum_unified_real.py`.
+
+| Name | Qubits | Observables | Total Features |
+|------|--------|-------------|----------------|
+| `qunified_z_6q_3L_3ens` | 6 | Z | 32 |
+| `qunified_z_8q_3L_3ens` | 8 | Z | 38 |
+| `qunified_z_10q_3L_3ens` | 10 | Z | 44 |
+| `qunified_xyz_6q_3L_3ens` | 6 | XYZ | 68 |
+| `qunified_xyz_8q_3L_3ens` | 8 | XYZ | 86 |
+| `qunified_zzz_6q_3L_3ens` | 6 | Z+ZZ | 77 |
+| `qunified_zzz_8q_3L_3ens` | 8 | Z+ZZ | 122 |
+| `qunified_z_8q_3L_3ens_pca` | 8 | Z | 38 (PCA mapping) |
+
+Ablations: depth (2L, 5L), connectivity (linear).
+
+## Extension: Cross-Asset Correlation Features
+
+The current pipeline treats each `(date, ticker)` row independently. Cross-asset correlation structure — how stocks co-move — is ignored. Three approaches for incorporating it, in order of complexity:
+
+### Approach 1: Cross-Sectional Regime Features
+
+Compute aggregate statistics across the 10-stock universe on each date and append as features shared by all tickers. These act as regime indicators:
+
+| Feature | Formula | Signal |
+|---------|---------|--------|
+| `avg_corr_60d` | Mean of pairwise 60-day rolling return correlations across the 10 stocks | High = risk-off (stocks move together, excess returns are noise). Low = dispersion (stock-picking has signal) |
+| `ret_dispersion` | Cross-sectional std of 5-day returns across stocks on each date | High dispersion = cross-sectional spread to exploit |
+| `pca_ev1_share` | First eigenvalue of rolling 60-day return correlation matrix / trace | Measures single-factor dominance (market factor) |
+
+These are scalars per date (same for all tickers), adding only 3 features. They give the model context: "is today an environment where stock-specific features are informative?"
+
+Implementation: computed in `build_dataset()` after stacking all tickers, using cross-sectional return data. Appended as constant columns within each date.
+
+### Approach 2: Relative Positioning Features
+
+For each stock on each date, compute its rank or z-score within the cross-section of all 10 stocks:
+
+| Feature | Formula | Signal |
+|---------|---------|--------|
+| Cross-sectional rank of `ret_5d` | $\text{rank}(ret_{5d,i,t})$ among all tickers on date $t$, scaled to $[0, 1]$ | Relative momentum position |
+| Distance from cross-sectional mean | $ret_{5d,i,t} - \bar{ret}_{5d,t}$ | How far the stock is from the group |
+| Lead-lag score | Rolling correlation of stock $i$'s returns with equal-weighted portfolio lagged returns | Whether stock leads or follows the group |
+
+These add a "relative to peers" dimension beyond the single stock-minus-market reference point. Could be applied to any subset of the 14 existing features. Adds $k$ features per selected base feature.
+
+Implementation: computed in `build_dataset()` after stacking, using `groupby("date")` to rank/z-score within each cross-section.
+
+### Approach 3: Quantum Encoding of Correlation Structure
+
+Instead of encoding a single stock's features into the quantum circuit, encode the **cross-sectional correlation structure** itself:
+
+1. On each date $t$, compute the $N \times N$ rolling return correlation matrix $C_t$ across the $N = 10$ stocks (60-day window)
+2. Extract the upper triangle (45 values), or the top-$k$ eigenvalues/eigenvectors
+3. Feed this as input to a dedicated `UnifiedReservoirAugmenter` instance — the entanglement structure naturally maps to pairwise correlations
+4. The circuit output becomes a set of "market structure features" appended to every stock's feature vector on that date
+
+This is the most natural fit for quantum circuits: a $k$-qubit circuit represents $2^k$ amplitudes, which can encode exponentially many relationships between $k$ assets. The quantum circuit operates on the domain where it has the strongest theoretical advantage — extracting nonlinear structure from a correlation/covariance matrix.
+
+$$
+\phi_{q}^{corr}(C_t) = \langle \psi(\text{vech}(C_t)) | \hat{O} | \psi(\text{vech}(C_t)) \rangle
+$$
+
+where $\text{vech}(C_t)$ is the half-vectorization of the correlation matrix.
+
+Implementation: a second augmenter instance in the backtest loop that takes correlation matrix features as input (shared across all stocks on the same date), with output appended alongside per-stock quantum features. The correlation matrix is computed from the training window only (no look-ahead).
 
 ## Evaluation
 
@@ -160,6 +218,6 @@ Per the challenge spec (Sections 14-15):
 ## Running
 
 ```bash
-uv run python scripts/run_real.py quick    # 3 tickers, monthly eval, identity + poly + 1 reservoir
-uv run python scripts/run_real.py full     # 10 tickers, daily eval, all augmenters
+uv run python scripts/run_real.py quick    # 3 tickers, monthly eval, identity + poly + 1 unified
+uv run python scripts/run_real.py full     # 10 tickers, daily eval, classical + unified sweep
 ```

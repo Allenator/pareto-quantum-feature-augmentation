@@ -17,13 +17,15 @@ CLASSICAL = [
     AugmenterConfig("interaction_log", "classical"),
     AugmenterConfig("rff_10", "classical", {"n_components": 10, "gamma": 0.5}),
     AugmenterConfig("rff_30", "classical", {"n_components": 30, "gamma": 0.5}),
+    AugmenterConfig("rff_50", "classical", {"n_components": 50, "gamma": 0.5}),
+    AugmenterConfig("rff_96", "classical", {"n_components": 96, "gamma": 0.5}),
 ]
 
-# ── Quantum augmenters ────────────────────────────────────────────────────
+# ── Quantum reservoir augmenters (simple: RY + linear CNOT + Z-only) ─────
 # QuantumReservoir from scripts/quantum_reservoir.py (RY → [Rot+CNOT]×L → Rot → ⟨Zᵢ⟩)
 # Uses "qres" prefix to route through QuantumReservoirAugmenter wrapper.
 # n_qubits must equal input feature dimension (14) for this augmenter.
-QUANTUM = [
+QUANTUM_RESERVOIR = [
     # Ensemble size sweep at 14 qubits (1:1 feature mapping)
     AugmenterConfig("qres_3x2_14q", "quantum_fixed",
         {"n_qubits": 14, "n_layers": 2, "n_ensemble": 3}),
@@ -40,7 +42,49 @@ QUANTUM = [
         {"n_qubits": 14, "n_layers": 5, "n_ensemble": 3}),
 ]
 
-MODELS = [ModelConfig("ridge"), ModelConfig("lasso")]
+N_FEATURES = 14  # len(FEATURE_COLS)
+
+# Common kwargs for the winning synthetic design axes
+_UNIFIED_BASE = dict(
+    n_features=N_FEATURES, encoding="angle", connectivity="circular",
+    cnot_mixing=True, random_rot=True,
+)
+
+# ── Unified quantum augmenters (angle + circular CNOT + configurable obs) ─
+# Uses "qunified" prefix to route through UnifiedReservoirAugmenter.
+# Modular feature-to-qubit mapping (averages features into qubit bins).
+QUANTUM_UNIFIED = [
+    # Main sweep: qubit count × observables
+    AugmenterConfig("qunified_z_6q_3L_3ens", "quantum_fixed",
+        {**_UNIFIED_BASE, "n_qubits": 6, "observables": "Z", "n_layers": 3, "n_ensemble": 3}),
+    AugmenterConfig("qunified_z_8q_3L_3ens", "quantum_fixed",
+        {**_UNIFIED_BASE, "n_qubits": 8, "observables": "Z", "n_layers": 3, "n_ensemble": 3}),
+    AugmenterConfig("qunified_xyz_6q_3L_3ens", "quantum_fixed",
+        {**_UNIFIED_BASE, "n_qubits": 6, "observables": "XYZ", "n_layers": 3, "n_ensemble": 3}),
+    AugmenterConfig("qunified_xyz_8q_3L_3ens", "quantum_fixed",
+        {**_UNIFIED_BASE, "n_qubits": 8, "observables": "XYZ", "n_layers": 3, "n_ensemble": 3}),
+    AugmenterConfig("qunified_zzz_6q_3L_3ens", "quantum_fixed",
+        {**_UNIFIED_BASE, "n_qubits": 6, "observables": "Z+ZZ", "n_layers": 3, "n_ensemble": 3}),
+    AugmenterConfig("qunified_zzz_8q_3L_3ens", "quantum_fixed",
+        {**_UNIFIED_BASE, "n_qubits": 8, "observables": "Z+ZZ", "n_layers": 3, "n_ensemble": 3}),
+    # PCA mapping variant
+    AugmenterConfig("qunified_z_8q_3L_3ens_pca", "quantum_fixed",
+        {**_UNIFIED_BASE, "n_qubits": 8, "observables": "Z", "n_layers": 3, "n_ensemble": 3,
+         "qubit_mapping": "pca"}),
+    # Ablations: depth
+    AugmenterConfig("qunified_z_8q_2L_3ens", "quantum_fixed",
+        {**_UNIFIED_BASE, "n_qubits": 8, "observables": "Z", "n_layers": 2, "n_ensemble": 3}),
+    AugmenterConfig("qunified_z_8q_5L_3ens", "quantum_fixed",
+        {**_UNIFIED_BASE, "n_qubits": 8, "observables": "Z", "n_layers": 5, "n_ensemble": 3}),
+    # Ablation: connectivity
+    AugmenterConfig("qunified_z_8q_3L_3ens_linear", "quantum_fixed",
+        {**_UNIFIED_BASE, "n_qubits": 8, "observables": "Z", "n_layers": 3, "n_ensemble": 3,
+         "connectivity": "linear"}),
+]
+
+QUANTUM = QUANTUM_UNIFIED  # qres excluded — slow per-sample loop at 14 qubits
+
+MODELS = [ModelConfig("ridge")]
 
 SEEDS_PLACEHOLDER = [42]  # Real data doesn't need seed variation (data is fixed)
 
@@ -57,8 +101,9 @@ def run_quick():
         augmenters=[
             AugmenterConfig("identity", "classical"),
             AugmenterConfig("poly_deg2", "classical"),
-            AugmenterConfig("qres_3x2_14q", "quantum_fixed",
-                {"n_qubits": 14, "n_layers": 2, "n_ensemble": 3}),
+            AugmenterConfig("qunified_z_8q_3L_3ens", "quantum_fixed",
+                {**_UNIFIED_BASE, "n_qubits": 8, "observables": "Z",
+                 "n_layers": 3, "n_ensemble": 3}),
         ],
         models=[ModelConfig("ridge")],
         run_id="quick",

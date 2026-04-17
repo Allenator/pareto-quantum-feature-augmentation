@@ -60,9 +60,19 @@ class QuantumReservoirAugmenter:
 
 
 def _run_single_augmenter_real(aug_config, X_train, X_test, y_train, clip_range):
-    """Run a single augmenter, with support for QuantumReservoir configs."""
+    """Run a single augmenter, with support for quantum reservoir configs."""
     if aug_config.name.startswith("qres"):
         augmenter = QuantumReservoirAugmenter(**aug_config.params)
+        if clip_range is not None:
+            X_train = np.clip(X_train, -clip_range, clip_range)
+            X_test = np.clip(X_test, -clip_range, clip_range)
+        augmenter.fit(X_train, y_train)
+        train_result = augmenter.transform(X_train)
+        test_result = augmenter.transform(X_test)
+        return aug_config.name, train_result, test_result
+    elif aug_config.name.startswith("qunified"):
+        from src.real.quantum_unified_real import UnifiedReservoirAugmenter
+        augmenter = UnifiedReservoirAugmenter(**aug_config.params)
         if clip_range is not None:
             X_train = np.clip(X_train, -clip_range, clip_range)
             X_test = np.clip(X_test, -clip_range, clip_range)
@@ -82,24 +92,39 @@ class BacktestRunner:
         self._n_workers = os.cpu_count()
 
     def _get_eval_dates(self, dataset: pd.DataFrame) -> list[pd.Timestamp]:
-        """Get evaluation dates: every step_days trading days after warmup."""
+        """Get evaluation dates: every step_days trading days after warmup.
+
+        Uses trading-day indexing so train_window_days and gap_days refer to
+        actual trading days, not calendar days.
+        """
         all_dates = sorted(dataset["date"].unique())
+        self._trading_dates = all_dates  # cache for _get_masks
         bc = self.config.backtest
 
-        # Warmup: need at least train_window_days of calendar days
-        first_date = all_dates[0]
-        warmup_end = first_date + pd.Timedelta(days=bc.train_window_days)
+        # First eval date needs train_window_days + gap_days trading days before it
+        first_eval_idx = bc.train_window_days + bc.gap_days
+        if first_eval_idx >= len(all_dates):
+            return []
 
-        valid_dates = [d for d in all_dates if d >= warmup_end]
-        return valid_dates[::bc.step_days]
+        return all_dates[first_eval_idx::bc.step_days]
 
     def _get_masks(self, dataset: pd.DataFrame, eval_date: pd.Timestamp):
-        """Get train and test masks for a given evaluation date."""
-        bc = self.config.backtest
+        """Get train and test masks for a given evaluation date.
 
-        # Train: [eval_date - 2yr, eval_date - gap)
-        train_end = eval_date - pd.Timedelta(days=bc.gap_days)
-        train_start = eval_date - pd.Timedelta(days=bc.train_window_days)
+        Uses trading-day indexing: train window is the preceding
+        train_window_days trading days, with a gap_days trading-day gap
+        before the eval date.
+        """
+        bc = self.config.backtest
+        dates = self._trading_dates
+        eval_idx = dates.index(eval_date)
+
+        # Train: trading days [eval_idx - gap - window, eval_idx - gap)
+        train_end_idx = eval_idx - bc.gap_days
+        train_start_idx = max(0, train_end_idx - bc.train_window_days)
+
+        train_start = dates[train_start_idx]
+        train_end = dates[train_end_idx]
 
         train_mask = (dataset["date"] >= train_start) & (dataset["date"] <= train_end)
         test_mask = dataset["date"] == eval_date
