@@ -1,0 +1,5 @@
+source,n_train,n_test,exact_mse,hw_mse,sigma_star,notes
+singleton_z+zz_n100+50,100,50,2.1954,5.5135,0.4218,
+packed_z_n100+50,100,50,2.8443,5.4565,0.4609,
+packed_z_n500+250,500,250,1.9989,4.0708,0.5876,
+packed_z_n1000+500,1000,500,2.5854,5.4288,0.621,
