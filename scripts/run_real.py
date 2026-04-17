@@ -112,6 +112,19 @@ def run_quick():
     return runner.run()
 
 
+def run_monthly():
+    """All augmenters, 10 tickers, monthly eval steps."""
+    config = ExperimentConfig(
+        data=RealDataConfig(),
+        backtest=BacktestConfig(step_days=21),  # monthly
+        augmenters=CLASSICAL + QUANTUM,
+        models=MODELS,
+        run_id="monthly",
+    )
+    runner = BacktestRunner(config)
+    return runner.run()
+
+
 def run_full():
     """Full experiment: 10 tickers, daily eval, all augmenters."""
     config = ExperimentConfig(
@@ -130,8 +143,10 @@ if __name__ == "__main__":
 
     if mode == "quick":
         run_quick()
+    elif mode == "monthly":
+        run_monthly()
     elif mode == "full":
         run_full()
     else:
-        print(f"Usage: python scripts/run_real.py [quick|full]")
+        print(f"Usage: python scripts/run_real.py [quick|monthly|full]")
         sys.exit(1)

@@ -77,14 +77,20 @@ Training set size: 504 trading days $\times$ 10 tickers = ~5040 samples $\times$
 
 ### Cached Augmentation with Monthly Scaler Refit
 
-Consecutive windows share >99% of training data (503/504 days overlap). To avoid redundant quantum circuit evaluation:
+Naive per-window augmentation is dominated by quantum circuit simulation: each window re-evaluates all circuits on ~5040 samples that are >99% identical to the previous window (503/504 days overlap). Two optimizations eliminate this redundancy:
 
-1. **Augmenter objects** are built once at the start and reused across all windows
-2. **StandardScaler** is refit every 21 trading days (~monthly) on the current training window
-3. On each scaler refit, all augmenters transform the **full dataset** once; results are cached
-4. Per-window work reduces to **array slicing + model fitting** (~ms)
+**1. Persistent augmenter objects.** All augmenters are constructed once at the start and reused. This avoids rebuilding PennyLane QNodes, devices, and random weight arrays on every window. Quantum augmenters run in parallel via `ProcessPoolExecutor` (each worker rebuilds its own augmenter to avoid pickling QNode objects).
 
-This yields a ~16x speedup over per-window augmentation with negligible impact on results (the scaler mean/std barely changes between consecutive windows).
+**2. Monthly scaler refit with full-dataset caching.** The `StandardScaler` is refit every 21 trading days (~monthly) instead of every window. On each refit, every augmenter transforms the **full dataset** once; results are cached as numpy arrays. Between refits, per-window work reduces to array slicing + Ridge/Lasso fitting (~ms).
+
+**Compromise.** The scaler for windows between refits is "stale" — fit on one training window but applied to windows that have shifted by up to 20 trading days. Since the training window is 504 days and shifts by 1 day per step, the scaler mean/std changes by $\lesssim 0.4\%$ between refits. Empirically, this has negligible impact on results:
+
+| Metric | Per-window scaler (baseline) | Monthly scaler (cached) |
+|--------|------------------------------|-------------------------|
+| MSE | 0.001616 | 0.001623 |
+| IC | 0.412 | 0.407 |
+
+**Performance.** On a 16-core machine with 10 quantum augmenters (8-qubit circuits), the cached approach is **~16x faster** than per-window augmentation. The precompute step (scaler refit + full-dataset augmentation of 8676 rows × 18 augmenters) takes ~20s, after which all 18 eval windows complete in <6s total.
 
 ### Time-Series Safeguards
 
@@ -235,5 +241,6 @@ Per the challenge spec (Sections 14-15):
 
 ```bash
 uv run python scripts/run_real.py quick    # 3 tickers, monthly eval, identity + poly + 1 unified
-uv run python scripts/run_real.py full     # 10 tickers, daily eval, classical + unified sweep
+uv run python scripts/run_real.py monthly  # 10 tickers, monthly eval, all 18 augmenters
+uv run python scripts/run_real.py full     # 10 tickers, daily eval, all 18 augmenters
 ```

@@ -3,7 +3,7 @@
 import json
 import time
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 import os
 
@@ -57,6 +57,35 @@ class QuantumReservoirAugmenter:
             n_random_params=self._qr.n_random_params,
             qubit_count=self._qr.n_qubits,
         )
+
+
+def _precompute_single_quantum(aug_config, X_all_clipped, X_train_clipped, y_train):
+    """Build and run a single quantum augmenter on the full dataset.
+
+    Top-level function so it can be pickled for ProcessPoolExecutor.
+    Each worker builds its own augmenter (avoids pickling QNode objects).
+    """
+    if aug_config.name.startswith("qunified"):
+        from src.real.quantum_unified_real import UnifiedReservoirAugmenter
+        aug = UnifiedReservoirAugmenter(**aug_config.params)
+    elif aug_config.name.startswith("qres"):
+        aug = QuantumReservoirAugmenter(**aug_config.params)
+    else:
+        raise ValueError(f"Unknown quantum augmenter: {aug_config.name}")
+
+    aug.fit(X_train_clipped, y_train)
+    result = aug.transform(X_all_clipped)
+
+    meta = {
+        "n_features_total": result.n_original + result.n_augmented,
+        "n_features_augmented": result.n_augmented,
+        "n_trainable_params": result.n_trainable_params,
+        "n_random_params": result.n_random_params,
+        "circuit_depth": result.circuit_depth,
+        "qubit_count": result.qubit_count,
+        "gate_count": result.gate_count,
+    }
+    return result.features, meta
 
 
 def _run_single_augmenter_real(aug_config, X_train, X_test, y_train, clip_range):
@@ -153,6 +182,10 @@ class BacktestRunner:
     def _precompute_features(self, X_all, y_train, train_mask, augmenters, aug_is_quantum):
         """Refit scaler on training window, augment full dataset, cache results.
 
+        Quantum augmenters run in parallel via ProcessPoolExecutor (each worker
+        builds its own augmenter to avoid pickling QNode objects). Classical
+        augmenters run in the main process (fast, no benefit from parallelism).
+
         Returns (cached_features, aug_metadata) where cached_features maps
         augmenter name -> full-dataset augmented feature array.
         """
@@ -165,28 +198,51 @@ class BacktestRunner:
 
         cached = {}
         metadata = {}
+
+        # Classical augmenters: fast, run in main process
         for name, aug in augmenters.items():
-            X_input = X_clipped if aug_is_quantum[name] else X_scaled
-
-            # Fit (no-op for fixed augmenters; fits PCA for pca mapping)
-            aug.fit(X_input[train_mask], y_train)
-
-            # Transform full dataset once
-            result = aug.transform(X_input)
+            if aug_is_quantum[name]:
+                continue
+            aug.fit(X_scaled[train_mask], y_train)
+            result = aug.transform(X_scaled)
             cached[name] = result.features
+            metadata[name] = self._extract_metadata(result)
 
-            if name not in metadata:
-                metadata[name] = {
-                    "n_features_total": result.n_original + result.n_augmented,
-                    "n_features_augmented": result.n_augmented,
-                    "n_trainable_params": result.n_trainable_params,
-                    "n_random_params": result.n_random_params,
-                    "circuit_depth": result.circuit_depth,
-                    "qubit_count": result.qubit_count,
-                    "gate_count": result.gate_count,
+        # Quantum augmenters: run in parallel worker processes
+        quantum_configs = [
+            cfg for cfg in self.config.augmenters if aug_is_quantum.get(cfg.name)
+        ]
+        if quantum_configs:
+            X_train_q = X_clipped[train_mask]
+            y_train_q = y_train
+            n_workers = min(len(quantum_configs), os.cpu_count() or 1)
+
+            with ProcessPoolExecutor(max_workers=n_workers) as pool:
+                futures = {
+                    pool.submit(
+                        _precompute_single_quantum, cfg, X_clipped, X_train_q, y_train_q,
+                    ): cfg.name
+                    for cfg in quantum_configs
                 }
+                for future in as_completed(futures):
+                    name = futures[future]
+                    features, meta = future.result()
+                    cached[name] = features
+                    metadata[name] = meta
 
         return cached, metadata
+
+    @staticmethod
+    def _extract_metadata(result):
+        return {
+            "n_features_total": result.n_original + result.n_augmented,
+            "n_features_augmented": result.n_augmented,
+            "n_trainable_params": result.n_trainable_params,
+            "n_random_params": result.n_random_params,
+            "circuit_depth": result.circuit_depth,
+            "qubit_count": result.qubit_count,
+            "gate_count": result.gate_count,
+        }
 
     def run(self) -> dict:
         """Run the full walk-forward backtest.
