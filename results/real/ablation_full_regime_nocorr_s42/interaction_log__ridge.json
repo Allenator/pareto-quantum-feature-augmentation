@@ -1,0 +1,19 @@
+{
+  "augmenter_name": "interaction_log",
+  "model_name": "ridge",
+  "mse": 0.002204,
+  "mae": 0.033052,
+  "pearson_r": 0.061054,
+  "n_predictions": 3367,
+  "n_eval_dates": 337,
+  "n_tickers": 10,
+  "n_features_total": 187,
+  "n_features_augmented": 170,
+  "n_trainable_params": 0,
+  "n_random_params": 0,
+  "circuit_depth": null,
+  "qubit_count": null,
+  "gate_count": null,
+  "ic_mean_rolling_3m": 0.069524,
+  "ic_std_rolling_3m": 0.087849
+}

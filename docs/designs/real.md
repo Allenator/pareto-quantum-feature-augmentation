@@ -248,7 +248,18 @@ uv run python scripts/run_real.py ablation  # 2×2 factorial: regime × corr qua
 
 ### Correlation Ablation
 
-The `ablation` mode runs a 2×2 factorial study to isolate the contributions of regime features (Approach 1) and quantum correlation encoding (Approach 3). It runs 4 configurations with `identity` and `qunified_z_8q` on 3 tickers at monthly steps:
+The `ablation*` modes run a 2×2 factorial study to isolate the contributions of regime features (Approach 1) and quantum correlation encoding (Approach 3). Three variants share the same 2×2 grid at different granularities:
+
+| Mode | Tickers | Eval step | Purpose |
+|------|---------|-----------|---------|
+| `ablation` | 3 | monthly | quick diagnostic |
+| `ablation-monthly` | 10 | monthly | mid-fidelity |
+| `ablation-full` | 10 | daily | full backtest |
+
+Each mode sweeps 4 cells × 5 seeds = 20 runs. Per-cell augmenter roster:
+
+- **Classical (8)**: `identity`, `poly_deg2`, `poly_deg2_interact`, `interaction_log`, `rff_{10,30,50,96}`
+- **Quantum (2)**: `qunified_z_8q_3L_3ens` (modular mapping), `qunified_z_8q_3L_3ens_pca` (PCA mapping) — matched circuit, different feature-to-qubit projection
 
 | Run ID | Regime (3 features) | Corr quantum (24 features) | Per-stock features |
 |--------|--------------------|-----------------------------|-------------------|
@@ -257,4 +268,17 @@ The `ablation` mode runs a 2×2 factorial study to isolate the contributions of 
 | `ablation_regime_nocorr` | Yes | No | 17 |
 | `ablation_regime_corr` | Yes | Yes | 17 + 24 corr |
 
-Controlled by `use_regime_features` and `corr_augmenter` in `ExperimentConfig`. Results are saved to `results/real/ablation_*/`.
+Controlled by `use_regime_features` and `corr_augmenter` in `ExperimentConfig`. Results are saved to `results/real/ablation_*/` (or `results/real/ablation_full_*_s{seed}/` for the per-seed full mode).
+
+#### Full Results (10 tickers, daily eval, 337 OOS dates × 5 seeds)
+
+Aggregate MSE by kind (mean over augmenters × seeds), with best per cell in bold:
+
+| regime | corr | Classical MSE | Quantum MSE | Δ (Q − C) |
+|--------|------|--------------:|------------:|----------:|
+| off | off | 0.001847 | **0.001753** | −0.000094 |
+| off | on | 0.001874 | **0.001772** | −0.000102 |
+| on | off | 0.001916 | **0.001758** | −0.000158 |
+| on | on | 0.001939 | **0.001780** | −0.000159 |
+
+Per-cell winner (by MSE): `qunified_z_8q_3L_3ens` (modular) takes #1 in all 4 cells. The PCA variant trails modular by ~0.01–0.02 MSE and roughly half the Pearson r in every cell, indicating that bin-averaging preserves more signal than a linear PCA projection when compressing 14 → 8 dimensions. Adding regime features or the corr-quantum augmenter each *slightly worsens* the best quantum MSE (by ~0.00002–0.00003), consistent with the extra features being noise-dominated for the current universe.

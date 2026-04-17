@@ -1,0 +1,20 @@
+{
+  "augmenter_name": "identity",
+  "model_name": "ridge",
+  "mse": 0.001764,
+  "mae": 0.029637,
+  "pearson_r": 0.041607,
+  "n_predictions": 3367,
+  "n_eval_dates": 337,
+  "n_tickers": 10,
+  "n_features_total": 38,
+  "n_features_augmented": 0,
+  "n_trainable_params": 0,
+  "n_random_params": 0,
+  "circuit_depth": null,
+  "qubit_count": null,
+  "gate_count": null,
+  "n_corr_quantum_features": 24,
+  "ic_mean_rolling_3m": 0.044919,
+  "ic_std_rolling_3m": 0.057506
+}

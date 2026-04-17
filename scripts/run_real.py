@@ -183,7 +183,10 @@ def _ablation_config(n_tickers, step_days, prefix, use_regime, use_corr, seed):
     base = dict(n_features=n_feat, encoding="angle", connectivity="circular",
                 cnot_mixing=True, random_rot=True)
     augs = [
-        AugmenterConfig("identity", "classical"),
+        *CLASSICAL,
+        AugmenterConfig("qunified_z_8q_3L_3ens_pca", "quantum_fixed",
+            {**base, "n_qubits": 8, "observables": "Z", "n_layers": 3, "n_ensemble": 3,
+             "qubit_mapping": "pca"}),
         AugmenterConfig("qunified_z_8q_3L_3ens", "quantum_fixed",
             {**base, "n_qubits": 8, "observables": "Z", "n_layers": 3, "n_ensemble": 3}),
     ]
