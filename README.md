@@ -169,6 +169,16 @@ We tested five mitigation strategies — feature-only regression, damping-invers
 
 Full results, tables, and per-figure analysis: [docs/results/synthetic_hw.md](docs/results/synthetic_hw.md). Methodology and caveats: [docs/designs/synthetic_hw.md](docs/designs/synthetic_hw.md). Data-file inventory: [docs/designs/synthetic_hw_data.md](docs/designs/synthetic_hw_data.md).
 
+## Key Conclusions
+
+- **Method**: Pareto-optimal quantum feature augmentation systematically explores 7 structural design dimensions with model-agnostic parameters — isolating encoder **structure** from model choice. On synthetic benchmarks, quantum Pareto outperforms RFF, polynomial, and identity baselines in both linear and nonlinear regimes.
+
+- **Hardware feasibility**: Packing 20 reservoir circuits onto Rigetti Ankaa-3 cuts cost ~20× ($29 vs $540 at n=100+50) with **no measurable density-crosstalk**. HW noise is well-modeled as exact-sim + Gaussian $\sigma \approx 0.5$, matching simulated noise injection.
+
+- **Hardware ceiling**: Only ~15% of Rigetti's error budget is shot noise — 85% is gate + readout + crosstalk, so per-feature fidelity stays at 0.1–0.5 regardless of dataset size. Real-device runs show **significant performance degradation** versus noiseless simulation.
+
+- **Real-data result**: Quantum methods **Pareto-dominate** classical baselines across the full feature-size regime on S&P 500 excess returns; RFF correlation regresses to near-identity levels on stock data. Cross-asset correlation features only meaningfully help naive classical methods; regime scalars carry most of the cross-sectional signal.
+
 ## Setup
 
 Requires Python 3.14+ and [uv](https://docs.astral.sh/uv/). DataBento API key required for real data experiments.
