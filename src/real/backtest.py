@@ -85,11 +85,19 @@ def _run_single_augmenter_real(aug_config, X_train, X_test, y_train, clip_range)
 
 
 class BacktestRunner:
-    """Walk-forward backtesting: rolling 2-year train, predict next day, roll forward."""
+    """Walk-forward backtesting with monthly scaler refit and cached augmentation.
+
+    Optimizations over naive per-window augmentation:
+    1. Augmenter objects built once and reused across all windows
+    2. Scaler refit + full-dataset augmentation every SCALER_REFIT_INTERVAL trading days
+       (consecutive windows share >99% of training data, so the scaler barely moves)
+    3. Per-window work reduced to array slicing + Ridge/Lasso fit (~ms)
+    """
+
+    SCALER_REFIT_INTERVAL = 21  # trading days (~monthly)
 
     def __init__(self, config: ExperimentConfig):
         self.config = config
-        self._n_workers = os.cpu_count()
 
     def _get_eval_dates(self, dataset: pd.DataFrame) -> list[pd.Timestamp]:
         """Get evaluation dates: every step_days trading days after warmup.
@@ -131,34 +139,54 @@ class BacktestRunner:
 
         return train_mask, test_mask
 
-    def _run_augmenters_for_window(self, X_train_s, X_test_s, y_train):
-        """Run all augmenters for one backtest window. Returns dict of (train_result, test_result)."""
-        aug_results = {}
+    @staticmethod
+    def _build_augmenter_for_config(aug_config):
+        """Build a single augmenter object from config. Returns (augmenter, is_quantum)."""
+        if aug_config.name.startswith("qunified"):
+            from src.real.quantum_unified_real import UnifiedReservoirAugmenter
+            return UnifiedReservoirAugmenter(**aug_config.params), True
+        elif aug_config.name.startswith("qres"):
+            return QuantumReservoirAugmenter(**aug_config.params), True
+        else:
+            return _build_augmenter(aug_config), False
 
-        fixed_configs = [c for c in self.config.augmenters if c.kind in ("classical", "quantum_fixed")]
-        learned_configs = [c for c in self.config.augmenters if c.kind not in ("classical", "quantum_fixed")]
+    def _precompute_features(self, X_all, y_train, train_mask, augmenters, aug_is_quantum):
+        """Refit scaler on training window, augment full dataset, cache results.
 
-        # Fixed augmenters in parallel
-        if fixed_configs:
-            with ProcessPoolExecutor(max_workers=self._n_workers) as pool:
-                futures = {
-                    pool.submit(
-                        _run_single_augmenter_real, cfg, X_train_s, X_test_s, y_train, self.config.clip_range,
-                    ): cfg.name
-                    for cfg in fixed_configs
+        Returns (cached_features, aug_metadata) where cached_features maps
+        augmenter name -> full-dataset augmented feature array.
+        """
+        clip_range = self.config.clip_range
+
+        # Fit scaler on training window only
+        scaler = StandardScaler().fit(X_all[train_mask])
+        X_scaled = scaler.transform(X_all)
+        X_clipped = np.clip(X_scaled, -clip_range, clip_range) if clip_range else X_scaled
+
+        cached = {}
+        metadata = {}
+        for name, aug in augmenters.items():
+            X_input = X_clipped if aug_is_quantum[name] else X_scaled
+
+            # Fit (no-op for fixed augmenters; fits PCA for pca mapping)
+            aug.fit(X_input[train_mask], y_train)
+
+            # Transform full dataset once
+            result = aug.transform(X_input)
+            cached[name] = result.features
+
+            if name not in metadata:
+                metadata[name] = {
+                    "n_features_total": result.n_original + result.n_augmented,
+                    "n_features_augmented": result.n_augmented,
+                    "n_trainable_params": result.n_trainable_params,
+                    "n_random_params": result.n_random_params,
+                    "circuit_depth": result.circuit_depth,
+                    "qubit_count": result.qubit_count,
+                    "gate_count": result.gate_count,
                 }
-                for future in as_completed(futures):
-                    name, train_res, test_res = future.result()
-                    aug_results[name] = (train_res, test_res)
 
-        # Learning-based augmenters sequentially
-        for cfg in learned_configs:
-            name, train_res, test_res = _run_single_augmenter(
-                cfg, X_train_s, X_test_s, y_train, self.config.clip_range,
-            )
-            aug_results[name] = (train_res, test_res)
-
-        return aug_results
+        return cached, metadata
 
     def run(self) -> dict:
         """Run the full walk-forward backtest.
@@ -167,7 +195,7 @@ class BacktestRunner:
           - "metrics": dict of (aug_name, model_name) -> {mse, mae, pearson_r, ...}
           - "predictions": dict of (aug_name, model_name) -> DataFrame of OOS predictions
         """
-        print(f"Loading dataset...")
+        print("Loading dataset...")
         dataset = build_dataset(self.config.data)
         print(f"Dataset: {len(dataset)} rows, {dataset['ticker'].nunique()} tickers, "
               f"dates {dataset['date'].min().date()} to {dataset['date'].max().date()}")
@@ -175,51 +203,65 @@ class BacktestRunner:
         eval_dates = self._get_eval_dates(dataset)
         print(f"Evaluation dates: {len(eval_dates)} "
               f"({eval_dates[0].date()} to {eval_dates[-1].date()})")
-        print(f"Workers: {self._n_workers}")
+
+        # Build all augmenters once (persistent across windows)
+        augmenters = {}
+        aug_is_quantum = {}
+        for cfg in self.config.augmenters:
+            aug, is_q = self._build_augmenter_for_config(cfg)
+            augmenters[cfg.name] = aug
+            aug_is_quantum[cfg.name] = is_q
+        print(f"Augmenters: {len(augmenters)} ({sum(aug_is_quantum.values())} quantum)")
+
+        X_all = dataset[FEATURE_COLS].values
+        y_all = dataset["target"].values
 
         # Collect all OOS predictions per (augmenter, model)
         oos_predictions: dict[tuple[str, str], list] = defaultdict(list)
-
-        # Track augmenter metadata from first window for final metrics
         aug_metadata: dict[str, dict] = {}
 
-        for t in tqdm(eval_dates, desc="Backtest", unit="day"):
+        # Cached augmented features (recomputed on scaler refit)
+        cached_features = None
+        refit_countdown = 0
+
+        for idx, t in enumerate(tqdm(eval_dates, desc="Backtest", unit="day")):
             train_mask, test_mask = self._get_masks(dataset, t)
 
-            X_train = dataset.loc[train_mask, FEATURE_COLS].values
-            y_train = dataset.loc[train_mask, "target"].values
-            X_test = dataset.loc[test_mask, FEATURE_COLS].values
-            y_test = dataset.loc[test_mask, "target"].values
+            y_train = y_all[train_mask]
+            y_test = y_all[test_mask]
             test_tickers = dataset.loc[test_mask, "ticker"].values
 
-            if len(X_train) < self.config.backtest.min_train_samples or len(X_test) == 0:
+            if y_train.sum() == 0 or len(y_test) == 0:
+                continue
+            if np.count_nonzero(train_mask) < self.config.backtest.min_train_samples:
                 continue
 
-            # Scale (fit on train only)
-            scaler = StandardScaler()
-            X_train_s = scaler.fit_transform(X_train)
-            X_test_s = scaler.transform(X_test)
+            # Refit scaler and re-augment monthly
+            if refit_countdown <= 0:
+                t0 = time.perf_counter()
+                cached_features, new_meta = self._precompute_features(
+                    X_all, y_train, train_mask, augmenters, aug_is_quantum,
+                )
+                aug_metadata.update(new_meta)
+                elapsed = time.perf_counter() - t0
+                if idx == 0:
+                    print(f"Precompute: {elapsed:.1f}s for {len(X_all)} rows × "
+                          f"{len(augmenters)} augmenters")
+                refit_countdown = self.SCALER_REFIT_INTERVAL
 
-            # Run augmenters
-            aug_results = self._run_augmenters_for_window(X_train_s, X_test_s, y_train)
+            refit_countdown -= 1
 
-            # Run models and collect predictions
-            for aug_name, (train_res, test_res) in aug_results.items():
-                # Capture metadata from first window
-                if aug_name not in aug_metadata:
-                    aug_metadata[aug_name] = {
-                        "n_features_total": train_res.n_original + train_res.n_augmented,
-                        "n_features_augmented": train_res.n_augmented,
-                        "n_trainable_params": train_res.n_trainable_params,
-                        "n_random_params": train_res.n_random_params,
-                        "circuit_depth": train_res.circuit_depth,
-                        "qubit_count": train_res.qubit_count,
-                        "gate_count": train_res.gate_count,
-                    }
+            # Slice cached features and fit models (fast: ~ms per model)
+            train_idx = np.where(train_mask)[0]
+            test_idx = np.where(test_mask)[0]
+
+            for aug_name in augmenters:
+                X_train_aug = cached_features[aug_name][train_idx]
+                X_test_aug = cached_features[aug_name][test_idx]
 
                 for model_cfg in self.config.models:
                     model = _build_model(model_cfg)
-                    pred = model.fit_predict(train_res.features, y_train, test_res.features)
+                    pred = model.fit_predict(X_train_aug, y_train, X_test_aug)
 
                     for i in range(len(y_test)):
                         oos_predictions[(aug_name, model_cfg.name)].append({

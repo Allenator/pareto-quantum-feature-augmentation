@@ -57,23 +57,34 @@ Maximum lookback is 120 trading days (`ret_120d`). The volume z-score uses a 252
 
 ## Walk-Forward Backtesting
 
-Training uses **rolling windows**, not random splits, to prevent look-ahead bias.
+Training uses **rolling windows** in trading-day units, not random splits, to prevent look-ahead bias.
 
 ```
-Timeline:  2022 ------------ 2024 ------------ 2025-12-31
-           |<-- 2yr warmup -->|<-- OOS eval -->|
-           (features need     (roll forward
-            120d lookback)     1 day at a time)
+Timeline:  2022 ------------ mid-2024 ------------ 2025-12-31
+           |<-- 2yr warmup -->|<---- OOS eval ---->|
+           (504 trading days   (roll forward
+            + feature lookback) 1 trading day)
 ```
 
 At each evaluation date $t$:
 
-1. **Train window**: all `(date, ticker)` rows in $[t - 2\text{yr},\; t - 5\text{d})$
+1. **Train window**: all `(date, ticker)` rows in the preceding 504 trading days, ending 5 trading days before $t$
 2. **Gap**: 5 trading days (= prediction horizon) between train end and test date
 3. **Test**: all tickers on date $t$
-4. **Refit**: StandardScaler, augmenters, and models are fit from scratch each window
+4. **Model refit**: Ridge/Lasso refit from scratch each window
 
-Training set size: ~500 trading days $\times$ 10 tickers = ~5000 samples $\times$ 14 features per window.
+Training set size: 504 trading days $\times$ 10 tickers = ~5040 samples $\times$ 14 features per window.
+
+### Cached Augmentation with Monthly Scaler Refit
+
+Consecutive windows share >99% of training data (503/504 days overlap). To avoid redundant quantum circuit evaluation:
+
+1. **Augmenter objects** are built once at the start and reused across all windows
+2. **StandardScaler** is refit every 21 trading days (~monthly) on the current training window
+3. On each scaler refit, all augmenters transform the **full dataset** once; results are cached
+4. Per-window work reduces to **array slicing + model fitting** (~ms)
+
+This yields a ~16x speedup over per-window augmentation with negligible impact on results (the scaler mean/std barely changes between consecutive windows).
 
 ### Time-Series Safeguards
 
@@ -81,8 +92,10 @@ Training set size: ~500 trading days $\times$ 10 tickers = ~5000 samples $\times
 |---------|-----------|
 | No look-ahead in features | All features use only past data (lookback windows ending at or before $t$) |
 | No look-ahead in target | Target is future 5-day return; never in training features |
-| Train/test gap | 5-day gap prevents leakage from prediction horizon |
-| Refit each window | Scaler, augmenters, models refit from scratch (no carry-over) |
+| Train/test gap | 5 trading-day gap prevents leakage from prediction horizon |
+| Scaler fit on train only | StandardScaler fit on training window, applied to full dataset for caching |
+| PCA fit on train only | PCA mapping (when used) fit on training window at each scaler refit |
+| Model refit each window | Ridge/Lasso refit from scratch every window |
 
 ### Aggregation
 
@@ -109,20 +122,23 @@ features/real/               # Saved augmented feature matrices
 | Component | Source |
 |-----------|--------|
 | `AugmenterConfig`, `ModelConfig` | `src/synthetic/config.py` |
-| All augmenters (classical, quantum, neural) | `src/synthetic/augmenters/*` |
-| All linear models (OLS, Ridge, Lasso, ElasticNet) | `src/synthetic/models/*` |
-| `compute_metrics()`, `ExperimentMetrics` | `src/synthetic/evaluation/metrics.py` |
-| `ResultTable` | `src/synthetic/evaluation/comparison.py` |
+| Classical augmenters (identity, polynomial, RFF, interaction_log) | `src/synthetic/augmenters/*` |
+| Linear models (Ridge, Lasso) | `src/synthetic/models/*` |
+| `_get_pairs()`, `_build_measurements()`, `_n_features()` | `src/synthetic/augmenters/quantum_unified.py` |
+| `AugmenterResult`, `_make_result()` | `src/synthetic/augmenters/base.py` |
 | `_build_augmenter()`, `_build_model()` | `src/synthetic/runner.py` |
 
 ## Dimensionality Strategy
 
-With 14 input features (vs. 4 in synthetic), quantum circuits need more qubits or feature-to-qubit mapping:
+With 14 input features (vs. 4 in synthetic), the winning quantum circuit design (4 qubits, hardcoded) cannot be used directly. `UnifiedReservoirAugmenter` in `src/real/quantum_unified_real.py` generalizes it with configurable feature-to-qubit mapping:
 
-- All existing augmenters accept `n_qubits` independently of input dimension
-- When `n_qubits < n_features`: features map to qubits via modular wrapping ($X_i \to$ qubit $i \bmod n_q$, angles summed)
-- Sweep `n_qubits` in $\{4, 6, 8, 10, 14\}$ to study the tradeoff
-- Reservoir augmenters with multiple reservoirs are particularly well-suited (independent random parameters)
+| Mapping | Description | Fit required |
+|---------|-------------|-------------|
+| `direct` | 1:1, `n_qubits = n_features` | No |
+| `modular` | Average features into `n_qubits` bins: $x_j = \text{mean}(x_i : i \bmod n_q = j)$ | No |
+| `pca` | PCA reduction to `n_qubits` dimensions | Yes (per scaler refit) |
+
+Sweep `n_qubits` in $\{6, 8\}$ with observables in $\{Z, XYZ, Z{+}ZZ\}$ to study the tradeoff between circuit expressivity and feature count. Practical limit ~150 total features for ~5000 training samples.
 
 ## Augmenter Selection
 

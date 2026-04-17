@@ -1,9 +1,9 @@
 {
   "augmenter_name": "poly_deg2",
   "model_name": "ridge",
-  "mse": 0.00195,
-  "mae": 0.03225,
-  "pearson_r": 0.24432,
+  "mse": 0.001953,
+  "mae": 0.032162,
+  "pearson_r": 0.240979,
   "n_predictions": 54,
   "n_eval_dates": 18,
   "n_tickers": 3,

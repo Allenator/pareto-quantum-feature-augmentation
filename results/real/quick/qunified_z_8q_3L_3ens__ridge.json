@@ -1,9 +1,9 @@
 {
   "augmenter_name": "qunified_z_8q_3L_3ens",
   "model_name": "ridge",
-  "mse": 0.001616,
-  "mae": 0.029714,
-  "pearson_r": 0.411541,
+  "mse": 0.001623,
+  "mae": 0.029972,
+  "pearson_r": 0.406631,
   "n_predictions": 54,
   "n_eval_dates": 18,
   "n_tickers": 3,

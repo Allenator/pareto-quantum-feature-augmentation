@@ -1,9 +1,9 @@
 {
   "augmenter_name": "identity",
   "model_name": "ridge",
-  "mse": 0.001751,
-  "mae": 0.031257,
-  "pearson_r": 0.289539,
+  "mse": 0.00175,
+  "mae": 0.031245,
+  "pearson_r": 0.290327,
   "n_predictions": 54,
   "n_eval_dates": 18,
   "n_tickers": 3,
