@@ -1,0 +1,19 @@
+{
+  "augmenter_name": "qunified_z_8q_2L_3ens",
+  "model_name": "ridge",
+  "mse": 0.00175,
+  "mae": 0.029791,
+  "pearson_r": 0.116777,
+  "n_predictions": 3677,
+  "n_eval_dates": 368,
+  "n_tickers": 10,
+  "n_features_total": 38,
+  "n_features_augmented": 24,
+  "n_trainable_params": 0,
+  "n_random_params": 216,
+  "circuit_depth": 20,
+  "qubit_count": 8,
+  "gate_count": 41,
+  "ic_mean_rolling_3m": 0.119642,
+  "ic_std_rolling_3m": 0.074409
+}
